@@ -343,16 +343,40 @@ async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
                     break
 
             if matched_id:
-                # Pull the account data
+                # Pull the full account data
                 logger.info(f"Pulling account data for {matched_id}")
                 summary = pull_account_data(matched_id)
-                summary_json = json.dumps(summary, indent=2)
 
-                # Write back to GHL
-                await update_contact_field(ghl_contact_id, "google_ads_summary", summary_json)
+                # ── 1. Write a readable 6-line snapshot to the GHL field ──────
+                wasted_total = sum(k.get("spend", 0) for k in summary.get("wasted_keywords", []))
+                snapshot = (
+                    f"Total spend (90d): ${summary.get('total_spend_90d', 0):,.2f}\n"
+                    f"Conversions: {summary.get('total_conversions_90d', 0)} | "
+                    f"Cost per conversion: ${summary.get('cost_per_conversion', 0):,.2f}\n"
+                    f"Active campaigns: {summary.get('num_active_campaigns', 0)}\n"
+                    f"Wasted spend identified: ${wasted_total:,.2f} "
+                    f"({len(summary.get('wasted_keywords', []))} keywords)\n"
+                    f"Avg quality score: {summary.get('avg_quality_score', 0)}/10\n"
+                    f"Status: Full report emailed to pete@clinicmastery.com.au"
+                )
+                await update_contact_field(ghl_contact_id, "google_ads_summary", snapshot)
                 await update_contact_field(ghl_contact_id, "google_ads_data_status", "Complete")
 
-                # Mark as done in polling state
+                # ── 2. Generate branded PDF and email it ──────────────────────
+                try:
+                    from pdf_report import generate_pdf
+                    from emailer import send_ads_report
+                    pdf_bytes = generate_pdf(summary, clinic_name)
+                    sent = send_ads_report(clinic_name, pdf_bytes)
+                    if sent:
+                        logger.info(f"PDF audit report emailed for {clinic_name}")
+                    else:
+                        logger.warning(f"PDF generated but email failed for {clinic_name}")
+                except Exception as pdf_exc:
+                    logger.error(f"PDF/email step failed for {clinic_name}: {pdf_exc}")
+                    # Don't crash — GHL snapshot is already saved
+
+                # ── 3. Mark polling as complete ───────────────────────────────
                 state = _load_state()
                 if ghl_contact_id in state:
                     state[ghl_contact_id]["status"] = "complete"

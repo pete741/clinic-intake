@@ -20,8 +20,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 GMAIL_ADDRESS      = os.getenv("GMAIL_ADDRESS", "")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-NOTIFY_EMAIL       = "pete@clinicmastery.com.au"
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "")  # strip spaces Google adds for display
+NOTIFY_EMAIL       = "pete@clinicmastery.com"
 
 
 def send_ads_report(clinic_name: str, pdf_bytes: bytes) -> bool:

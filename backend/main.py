@@ -63,6 +63,24 @@ async def on_startup():
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+def _send_intake_brief_task(clinic_name: str, submission_dict: dict) -> None:
+    """
+    Background task: generates a short intake brief PDF and emails it to pete.
+    Called for clinics that skipped or don't have Google Ads.
+    """
+    try:
+        from pdf_report import generate_intake_brief
+        from emailer import send_intake_brief
+        pdf_bytes = generate_intake_brief(submission_dict)
+        sent = send_intake_brief(clinic_name, pdf_bytes, submission_dict)
+        if sent:
+            logger.info(f"Intake brief emailed for {clinic_name}")
+        else:
+            logger.warning(f"Intake brief generated but email failed for {clinic_name}")
+    except Exception as exc:
+        logger.error(f"Intake brief task failed for {clinic_name}: {exc}")
+
+
 @app.get("/health")
 async def health():
     """Simple liveness check. Returns 200 if the server is running."""
@@ -123,6 +141,12 @@ async def submit_intake(
 
         # Add the background polling task — runs async, doesn't block this response
         background_tasks.add_task(poll_for_access, submission.clinic_name, ghl_contact_id)
+
+    elif ads_tag == "ads-not-applicable":
+        # No Google Ads access — generate a standard intake brief and email it
+        background_tasks.add_task(
+            _send_intake_brief_task, submission.clinic_name, submission.model_dump()
+        )
 
     return {
         "status": "success",

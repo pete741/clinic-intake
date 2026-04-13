@@ -356,62 +356,60 @@ def _section_irrelevant(story, styles, data: dict):
 
 
 def _section_brand(story, styles, data: dict):
-    story.append(Paragraph("4. Brand vs Non-Brand Spend", styles["section"]))
+    story.append(Paragraph("4. Brand Keyword Spend — A Healthcare-Specific Problem", styles["section"]))
     _rule(story)
 
     brand     = data.get("brand_spend", 0)
     non_brand = data.get("non_brand_spend", 0)
     total     = brand + non_brand or 1
+    brand_pct = brand / total * 100
 
+    # In healthcare, brand spend is ALWAYS flagged as a problem.
+    # People searching a clinic name already know it — they are not new patients.
+    # Brand ads intercept existing demand and inflate conversion rates without
+    # generating growth. This is fundamentally different from e-commerce.
     story.append(Paragraph(
-        "Brand keywords are searches for your clinic name. They're cheap and convert well "
-        "but don't generate <i>new</i> patients — those people were already looking for you. "
-        "Non-brand keywords are where new patient growth actually comes from.",
-        styles["body"]))
+        "<b>In healthcare, brand keyword spend is almost always wasted money.</b> "
+        "Unlike e-commerce, people searching your clinic name are <i>existing patients, "
+        "referrals, or people who already decided to book</i> — they were going to find "
+        "you regardless. Paying Google to intercept them inflates your conversion rate "
+        "and makes your account look better than it is, while doing nothing to grow "
+        "your actual patient base.",
+        styles["warn"]))
     _spacer(story, 8)
 
-    # Split table
-    brand_pct    = brand / total * 100
-    nonbrand_pct = non_brand / total * 100
-
     rows = [
-        ["", "Spend", "% of Total", "Typical Conv. Rate", "Assessment"],
-        ["Brand keywords",     _fmt_d(brand),     f"{brand_pct:.1f}%",    "High (8–15%)",  ""],
-        ["Non-brand keywords", _fmt_d(non_brand), f"{nonbrand_pct:.1f}%", "Lower (2–6%)",  ""],
+        ["", "Spend", "% of Budget", "Who's Searching", "Verdict"],
+        [
+            "Brand keywords",
+            _fmt_d(brand),
+            f"{brand_pct:.1f}%",
+            "Existing patients, referrals, people who already chose you",
+            Paragraph("✗ Wasted on existing demand", styles["tag_red"]),
+        ],
+        [
+            "Non-brand keywords",
+            _fmt_d(non_brand),
+            f"{100-brand_pct:.1f}%",
+            "New patients actively searching for a clinic",
+            Paragraph("✓ This is real growth spend", styles["tag_green"]),
+        ],
     ]
 
-    # Assessment
-    if brand_pct > 40:
-        brand_assess = Paragraph("⚠ Over-indexed on brand", styles["amber"])
-        nonbrand_assess = Paragraph("Needs more investment", styles["warn"])
-    elif brand_pct < 10:
-        brand_assess = Paragraph("Low — check brand protection", styles["amber"])
-        nonbrand_assess = Paragraph("Good non-brand focus", styles["ok"])
-    else:
-        brand_assess = Paragraph("✓ Healthy balance", styles["ok"])
-        nonbrand_assess = Paragraph("✓ Good", styles["ok"])
-
-    rows[1][4] = brand_assess
-    rows[2][4] = nonbrand_assess
-
-    col_w = [45*mm, 25*mm, 25*mm, 40*mm, 39*mm]
+    col_w = [35*mm, 22*mm, 22*mm, 62*mm, 33*mm]
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(_tbl_style())
     story.append(tbl)
     _spacer(story, 6)
 
-    if brand_pct > 40:
+    if brand_pct > 0:
         _info_box(story, styles,
-            f"⚠ <b>Brand spend is high at {brand_pct:.0f}% of total budget.</b> "
-            "This is common when campaigns use broad match without negative keywords — "
-            "Google routes traffic to brand terms because they're cheap and convert easily, "
-            "which flatters your conversion rate without actually growing your patient base. "
-            "Separate brand and non-brand into distinct campaigns with individual budgets.",
-            bg=AMBER_LIGHT, border=AMBER)
-    else:
-        _info_box(story, styles,
-            "💡 Maintain separate brand and non-brand campaigns so you can control budget "
-            "allocation and measure true new patient acquisition cost independently.")
+            f"⚠ <b>{_fmt_d(brand)} ({brand_pct:.0f}% of budget) is being spent on brand searches.</b> "
+            "These are not new patients. Removing brand keywords from your non-brand campaigns "
+            "and either eliminating them entirely — or capping them in a separate low-budget "
+            "brand campaign — would redirect this spend toward genuine patient acquisition. "
+            "Your conversion rate will drop, but your <i>real</i> cost per new patient will improve.",
+            bg=RED_LIGHT, border=RED_WARN)
 
 
 def _section_conversion(story, styles, data: dict):
@@ -582,11 +580,11 @@ def _section_priorities(story, styles, data: dict):
             "Tighten keyword → ad copy → landing page alignment for each ad group.",
             "Medium"))
 
-    if brand_pct > 40:
-        priorities.append(("🟠", "Separate brand and non-brand campaigns",
-            f"{brand_pct:.0f}% of spend on brand terms inflates conversion rate "
-            "without growing new patients. Set a separate brand budget cap.",
-            "Medium"))
+    if brand_pct > 0:
+        priorities.append(("🔴", f"Remove brand keywords from growth campaigns ({_fmt_d(data.get('brand_spend',0))} at risk)",
+            f"{brand_pct:.0f}% of budget on brand terms. In healthcare these intercept "
+            "existing patients, not new ones. Eliminate or cap in a separate low-budget campaign.",
+            "High"))
 
     priorities.append(("🟢", "Schedule a monthly search term review",
         "Irrelevant terms accumulate over time with broad/phrase match. "
@@ -640,6 +638,272 @@ def _section_priorities(story, styles, data: dict):
         "Read-only access can be revoked at any time via Google Ads → Admin → Access and security. "
         "All data covers the 90-day period ending on the date shown above.",
         styles["small"]))
+
+
+# ── Prospect email draft ──────────────────────────────────────────────────────
+
+def generate_prospect_email_draft(clinic_name: str, ads_data: dict) -> str:
+    """
+    Generates a plain-text draft email pete can copy, personalise, and send
+    to the clinic prospect along with the PDF report.
+    """
+    wasted       = ads_data.get("wasted_keywords", [])
+    irrelevant   = ads_data.get("irrelevant_terms", [])
+    brand        = ads_data.get("brand_spend", 0)
+    non_brand    = ads_data.get("non_brand_spend", 0)
+    brand_pct    = brand / (brand + non_brand + 0.01) * 100
+    total_waste  = sum(k.get("spend",0) for k in wasted) + sum(t.get("spend",0) for t in irrelevant)
+    spend_90d    = ads_data.get("total_spend_90d", 0)
+    cost_per_conv = ads_data.get("cost_per_conversion", 0)
+    qs           = ads_data.get("avg_quality_score", 0)
+
+    # Build 2-3 punchy findings
+    findings = []
+    if total_waste > 0:
+        findings.append(
+            f"- We identified ${total_waste:,.0f} in wasted spend over the last 90 days — "
+            f"keywords and search terms eating budget with zero patient bookings."
+        )
+    if brand_pct > 5:
+        findings.append(
+            f"- {brand_pct:.0f}% of your budget ({_fmt_d(brand)}) is going to brand keyword searches. "
+            f"In healthcare, these are existing patients and referrals — not new ones. "
+            f"That money can be redirected to genuine patient acquisition."
+        )
+    if qs < 6:
+        findings.append(
+            f"- Your average quality score is {qs}/10, which means Google is charging you "
+            f"a premium on every click. Better ad structure would reduce your cost per click "
+            f"without increasing spend."
+        )
+    if cost_per_conv > 0:
+        findings.append(
+            f"- Current cost per new patient enquiry is {_fmt_d(cost_per_conv)}. "
+            f"There's a clear path to improving this."
+        )
+
+    findings_text = "\n".join(findings) if findings else \
+        "- Your account data is attached in full — there are several clear optimisation opportunities."
+
+    draft = f"""Subject: Your Google Ads analysis is ready — {clinic_name}
+
+Hi [First name],
+
+I've had a look through your Google Ads account and put together a full analysis — attached as a PDF.
+
+Here are the main things that stood out:
+
+{findings_text}
+
+I've outlined the specific fixes and what I'd prioritise first in the report.
+
+Happy to walk through it with you on a quick call — usually takes about 20 minutes and by the end you'll have a clear picture of exactly what to change and what it's worth.
+
+Are you free [suggest a time]?
+
+Pete
+Clinic Mastery
+pete@clinicmastery.com"""
+
+    return draft
+
+
+# ── Standard intake brief (no Google Ads data) ───────────────────────────────
+
+def generate_intake_brief(submission: dict) -> bytes:
+    """
+    Generates a short 1–2 page brief from intake form data alone.
+    Used when a clinic skips Google Ads access or doesn't run Google Ads.
+
+    Args:
+        submission: The raw intake form data dict (matches IntakeSubmission fields)
+
+    Returns:
+        PDF as bytes.
+    """
+    buffer = io.BytesIO()
+    clinic_name = submission.get("clinic_name", "Unknown Clinic")
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=MARGIN, rightMargin=MARGIN,
+        topMargin=MARGIN, bottomMargin=22*mm,
+        title=f"Intake Brief — {clinic_name}",
+        author="Clinic Mastery",
+    )
+
+    styles = _styles()
+    story  = []
+
+    # Header
+    logo_cell = ""
+    if LOGO_PATH.exists():
+        logo_cell = Image(str(LOGO_PATH), width=14*mm, height=18*mm, kind="proportional")
+
+    title = Paragraph(
+        f"Clinic Growth Brief<br/>"
+        f"<font size='11' color='#6b7280'>{clinic_name}</font>",
+        styles["title"],
+    )
+    date = Paragraph(datetime.utcnow().strftime("Received %d %b %Y"),
+                     ParagraphStyle("dr", fontName="Helvetica", fontSize=9,
+                                    textColor=MID_GREY, alignment=TA_RIGHT))
+    hdr = Table([[logo_cell, title, date]], colWidths=[22*mm, 115*mm, 38*mm])
+    hdr.setStyle(TableStyle([
+        ("VALIGN", (0,0),(-1,-1),"MIDDLE"),
+        ("LEFTPADDING",(0,0),(0,0),0),
+        ("RIGHTPADDING",(-1,0),(-1,0),0),
+    ]))
+    story.append(hdr)
+    _gold_rule(story)
+
+    # Intro
+    story.append(Paragraph(
+        f"<b>{clinic_name}</b> completed the Clinic Mastery intake form. "
+        f"Google Ads account access was not provided — this brief is based on "
+        f"the information submitted in the form.",
+        styles["body"]))
+    _spacer(story, 12)
+
+    # ── Clinic snapshot ───────────────────────────────────────────────────────
+    story.append(Paragraph("Clinic Snapshot", styles["section"]))
+    _rule(story)
+
+    snap_rows = [
+        ["Clinic name",     clinic_name],
+        ["Specialty",       submission.get("primary_specialty", "—")],
+        ["Location",        f"{submission.get('suburb','—')}, {submission.get('state','—')}"],
+        ["Practitioners",   str(submission.get("num_practitioners", "—"))],
+        ["Website",         submission.get("website_url", "—")],
+        ["Email",           submission.get("email", "—")],
+    ]
+    snap_tbl = Table(snap_rows, colWidths=[50*mm, 124*mm])
+    snap_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0,0),(0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0),(-1,-1), 9),
+        ("TOPPADDING", (0,0),(-1,-1), 5),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+        ("ROWBACKGROUNDS", (0,0),(-1,-1), [WHITE, LIGHT_BG]),
+        ("GRID", (0,0),(-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+        ("VALIGN", (0,0),(-1,-1), "MIDDLE"),
+    ]))
+    story.append(snap_tbl)
+    _spacer(story, 10)
+
+    # ── Revenue context ───────────────────────────────────────────────────────
+    story.append(Paragraph("Revenue Context", styles["section"]))
+    _rule(story)
+
+    avg_fee    = float(submission.get("avg_appointment_fee", 0) or 0)
+    avg_visits = float(submission.get("avg_visits_per_patient", 0) or 0)
+    ltv        = avg_fee * avg_visits
+    new_pts    = int(submission.get("new_patients_per_month", 0) or 0)
+    ad_spend   = float(submission.get("monthly_ad_spend", 0) or 0)
+    monthly_rev_from_new = ltv * new_pts
+
+    rev_rows = [
+        ["Avg appointment fee",       _fmt_d(avg_fee)],
+        ["Avg visits per patient",    str(avg_visits)],
+        ["Estimated patient LTV",     _fmt_d(ltv)],
+        ["New patients per month",    str(new_pts)],
+        ["Monthly revenue from new pts (est.)", _fmt_d(monthly_rev_from_new)],
+        ["Monthly Google Ads spend",  _fmt_d(ad_spend)],
+        ["Appointment types to grow", submission.get("appointment_types_to_grow", "—")],
+    ]
+    rev_tbl = Table(rev_rows, colWidths=[80*mm, 94*mm])
+    rev_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0,0),(0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0),(-1,-1), 9),
+        ("TOPPADDING", (0,0),(-1,-1), 5),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 5),
+        ("ROWBACKGROUNDS", (0,0),(-1,-1), [WHITE, LIGHT_BG]),
+        ("GRID", (0,0),(-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+        ("BACKGROUND", (0,2),(1,2), colors.HexColor("#eeecfb")),
+        ("FONTNAME", (0,2),(1,2), "Helvetica-Bold"),
+        ("VALIGN", (0,0),(-1,-1), "MIDDLE"),
+    ]))
+    story.append(rev_tbl)
+    _spacer(story, 6)
+
+    _info_box(story, styles,
+        f"💡 At an estimated LTV of {_fmt_d(ltv)} per patient, each additional new patient "
+        f"per month is worth approximately {_fmt_d(ltv * 12)} in annual revenue. "
+        f"With {new_pts} new patients currently per month, there's a clear growth lever here.")
+
+    # ── Goals ─────────────────────────────────────────────────────────────────
+    story.append(Paragraph("Goals & Context", styles["section"]))
+    _rule(story)
+
+    goal_rows = [
+        ["Main goal",          submission.get("main_goal", "—")],
+        ["Additional context", submission.get("additional_context") or "None provided"],
+        ["Google Ads status",  submission.get("has_google_ads") or "Not provided"],
+    ]
+    goal_tbl = Table(goal_rows, colWidths=[50*mm, 124*mm])
+    goal_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0,0),(0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0),(-1,-1), 9),
+        ("TOPPADDING", (0,0),(-1,-1), 6),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 6),
+        ("ROWBACKGROUNDS", (0,0),(-1,-1), [WHITE, LIGHT_BG]),
+        ("GRID", (0,0),(-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+        ("VALIGN", (0,0),(-1,-1), "TOP"),
+    ]))
+    story.append(goal_tbl)
+    _spacer(story, 10)
+
+    # ── Next steps ─────────────────────────────────────────────────────────────
+    story.append(Paragraph("Suggested Next Steps", styles["section"]))
+    _rule(story)
+
+    next_steps = [
+        ("1", "Schedule strategy call",
+         f"Review this brief with {clinic_name} and identify the biggest growth lever "
+         f"based on their goal: \"{submission.get('main_goal','')}\"."),
+        ("2", "Benchmark ad spend",
+         f"Monthly spend of {_fmt_d(ad_spend)} for {new_pts} new patients/month. "
+         f"Run a market-rate comparison for {submission.get('primary_specialty','')} "
+         f"in {submission.get('suburb','')}, {submission.get('state','')}."),
+        ("3", "Request Google Ads access",
+         "Audit not possible without account access. Consider requesting this on the call "
+         "to unlock the full analysis and wasted spend identification."),
+    ]
+
+    rows = [["", "Step", "Detail"]]
+    for num, step, detail in next_steps:
+        rows.append([
+            Paragraph(f"<b>{num}</b>", ParagraphStyle("n", fontName="Helvetica-Bold",
+                      fontSize=11, textColor=WHITE, alignment=TA_CENTER)),
+            Paragraph(f"<b>{step}</b>", styles["body_bold"]),
+            Paragraph(detail, styles["body"]),
+        ])
+
+    col_w = [10*mm, 45*mm, 119*mm]
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0),(-1,0), PURPLE),
+        ("TEXTCOLOR", (0,0),(-1,0), WHITE),
+        ("FONTNAME", (0,0),(-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0),(-1,0), 8),
+        ("BACKGROUND", (0,1),(0,-1), PURPLE),
+        ("TOPPADDING", (0,0),(-1,-1), 7),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 7),
+        ("FONTNAME", (0,1),(-1,-1), "Helvetica"),
+        ("FONTSIZE", (0,1),(-1,-1), 8),
+        ("ROWBACKGROUNDS", (1,1),(-1,-1), [WHITE, LIGHT_BG]),
+        ("GRID", (0,0),(-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+        ("VALIGN", (0,0),(-1,-1), "TOP"),
+        ("ALIGN", (0,0),(0,-1), "CENTER"),
+    ]))
+    story.append(tbl)
+    _spacer(story, 12)
+
+    _gold_rule(story)
+    story.append(Paragraph(
+        "Generated automatically by Clinic Mastery's intake system — clinicmastery.com",
+        styles["small"]))
+
+    doc.build(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
+    return buffer.getvalue()
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────

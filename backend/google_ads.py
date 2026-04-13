@@ -357,7 +357,7 @@ async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
                     f"Wasted spend identified: ${wasted_total:,.2f} "
                     f"({len(summary.get('wasted_keywords', []))} keywords)\n"
                     f"Avg quality score: {summary.get('avg_quality_score', 0)}/10\n"
-                    f"Status: Full report emailed to pete@clinicmastery.com.au"
+                    f"Status: Full report emailed to pete@clinicmastery.com"
                 )
                 await update_contact_field(ghl_contact_id, "google_ads_summary", snapshot)
                 await update_contact_field(ghl_contact_id, "google_ads_data_status", "Complete")
@@ -367,7 +367,7 @@ async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
                     from pdf_report import generate_pdf
                     from emailer import send_ads_report
                     pdf_bytes = generate_pdf(summary, clinic_name)
-                    sent = send_ads_report(clinic_name, pdf_bytes)
+                    sent = send_ads_report(clinic_name, pdf_bytes, summary)
                     if sent:
                         logger.info(f"PDF audit report emailed for {clinic_name}")
                     else:

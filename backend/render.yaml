@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: clinic-intake-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GHL_API_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+      - key: GOOGLE_ADS_DEVELOPER_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_ADS_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        value: ""
+      - key: FRONTEND_URL
+        value: https://app.gohighlevel.com

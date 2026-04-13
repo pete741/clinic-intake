@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clinic Growth Brief | Clinic Mastery</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Step panels — hidden by default, shown via JS */
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* Smooth progress bar transition */
+    #progress-bar { transition: width 0.3s ease; }
+
+    /* Copy-to-clipboard flash */
+    .copied { animation: flash 0.6s ease; }
+    @keyframes flash { 0%,100%{background:#f3e8ff} 50%{background:#d8b4fe} }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 py-10 px-4">
+
+  <!-- ─── Page wrapper ───────────────────────────────────────────────── -->
+  <div class="max-w-2xl mx-auto">
+
+    <!-- Branding -->
+    <div class="mb-6 text-center">
+      <p class="text-sm font-semibold text-blue-600 tracking-wide uppercase mb-1">Clinic Mastery</p>
+      <h1 class="text-3xl font-bold text-gray-900">Your free growth brief</h1>
+      <p class="mt-2 text-gray-500 text-sm">Takes about 3 minutes. We use this to build a personalised plan for your clinic.</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+
+      <!-- Progress bar -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-2">
+          <span id="step-label" class="text-sm font-medium text-gray-600">Step 1 of 4 — About your clinic</span>
+          <span id="step-pct" class="text-sm text-gray-400">25%</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div id="progress-bar" class="bg-blue-600 h-2 rounded-full" style="width:25%"></div>
+        </div>
+        <div class="flex justify-between mt-2">
+          <div id="dot-1" class="w-2.5 h-2.5 rounded-full bg-blue-600"></div>
+          <div id="dot-2" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
+          <div id="dot-3" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
+          <div id="dot-4" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
+        </div>
+      </div>
+
+      <!-- Global error banner -->
+      <div id="global-error" class="hidden mb-6 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700"></div>
+
+      <!-- ─── STEP 1 — About your clinic ─────────────────────────────── -->
+      <div class="step active" id="step-1">
+        <h2 class="text-2xl font-bold text-gray-900 mb-1">About your clinic</h2>
+        <p class="text-sm text-gray-500 mb-6">Tell us the basics — this becomes the foundation of your growth brief.</p>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Clinic name *</label>
+            <input id="clinic_name" type="text" placeholder="e.g. Bayside Physio"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-clinic_name"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email address *</label>
+            <input id="email" type="email" placeholder="you@yourclinic.com.au"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-email"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Primary specialty *</label>
+            <select id="primary_specialty"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Select a specialty…</option>
+              <option>Physiotherapy</option>
+              <option>Chiropractic</option>
+              <option>Occupational therapy</option>
+              <option>Podiatry</option>
+              <option>Psychology</option>
+              <option>Exercise physiology</option>
+              <option>Speech pathology</option>
+              <option>Osteopathy</option>
+              <option>Other allied health</option>
+            </select>
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-primary_specialty"></p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Suburb *</label>
+              <input id="suburb" type="text" placeholder="e.g. Newstead"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-suburb"></p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">State *</label>
+              <select id="state"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Select…</option>
+                <option>QLD</option><option>NSW</option><option>VIC</option>
+                <option>WA</option><option>SA</option><option>TAS</option>
+                <option>ACT</option><option>NT</option>
+              </select>
+              <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-state"></p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Number of practitioners *</label>
+            <input id="num_practitioners" type="number" min="1" placeholder="e.g. 3"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-num_practitioners"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Website URL *</label>
+            <input id="website_url" type="text" placeholder="https://www.yourclinic.com.au"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-website_url"></p>
+          </div>
+        </div>
+
+        <div class="flex justify-end mt-6">
+          <button onclick="goNext(1)" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg transition-colors">Next →</button>
+        </div>
+      </div>
+
+      <!-- ─── STEP 2 — Patient & revenue ─────────────────────────────── -->
+      <div class="step" id="step-2">
+        <h2 class="text-2xl font-bold text-gray-900 mb-1">Patient & revenue context</h2>
+        <p class="text-sm text-gray-500 mb-6">These numbers help us calculate your true cost per new patient and identify where the biggest gains are.</p>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Average appointment fee *</label>
+            <p class="text-xs text-gray-400 mb-1">The typical fee you charge per appointment, before health fund rebates</p>
+            <div class="relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input id="avg_appointment_fee" type="number" min="0" placeholder="e.g. 95"
+                class="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-avg_appointment_fee"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Average visits per patient *</label>
+            <p class="text-xs text-gray-400 mb-1">How many appointments does a typical patient attend before they discharge?</p>
+            <input id="avg_visits_per_patient" type="number" min="0" step="0.5" placeholder="e.g. 6"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-avg_visits_per_patient"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">New patients per month *</label>
+            <p class="text-xs text-gray-400 mb-1">Approximately how many new patients do you see each month across the whole clinic?</p>
+            <input id="new_patients_per_month" type="number" min="0" placeholder="e.g. 40"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-new_patients_per_month"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Monthly Google Ads spend *</label>
+            <p class="text-xs text-gray-400 mb-1">Enter 0 if you're not currently running Google Ads</p>
+            <div class="relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input id="monthly_ad_spend" type="number" min="0" placeholder="e.g. 2000"
+                class="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-monthly_ad_spend"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Appointment types you want to grow *</label>
+            <p class="text-xs text-gray-400 mb-1">What services do you most want to fill? Be specific.</p>
+            <input id="appointment_types_to_grow" type="text" placeholder="Initial consult, post-surgical rehab, NDIS"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-appointment_types_to_grow"></p>
+          </div>
+        </div>
+
+        <div class="flex justify-between mt-6">
+          <button onclick="goBack(2)" class="text-gray-500 hover:text-gray-700 font-medium px-4 py-2.5 rounded-lg border border-gray-300 transition-colors">← Back</button>
+          <button onclick="goNext(2)" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg transition-colors">Next →</button>
+        </div>
+      </div>
+
+      <!-- ─── STEP 3 — Goals & context ───────────────────────────────── -->
+      <div class="step" id="step-3">
+        <h2 class="text-2xl font-bold text-gray-900 mb-1">Goals & context</h2>
+        <p class="text-sm text-gray-500 mb-6">Help us understand what success looks like for you right now.</p>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Main goal *</label>
+            <select id="main_goal"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Select your primary goal…</option>
+              <option>Fill practitioner diaries faster</option>
+              <option>Reduce cost per new patient</option>
+              <option>Grow a specific service type</option>
+              <option>Onboard a new practitioner</option>
+              <option>Expand to a second location</option>
+              <option>Understand what's working — I want an audit</option>
+            </select>
+            <p class="error-msg hidden mt-1 text-xs text-red-600" id="err-main_goal"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Additional context <span class="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <p class="text-xs text-gray-400 mb-1">The more context you give, the more specific the brief.</p>
+            <textarea id="additional_context" rows="5" placeholder="Competitors, recent changes, challenges, what's worked before..."
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+          </div>
+        </div>
+
+        <div class="flex justify-between mt-6">
+          <button onclick="goBack(3)" class="text-gray-500 hover:text-gray-700 font-medium px-4 py-2.5 rounded-lg border border-gray-300 transition-colors">← Back</button>
+          <button onclick="goNext(3)" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg transition-colors">Next →</button>
+        </div>
+      </div>
+
+      <!-- ─── STEP 4 — Google Ads access ─────────────────────────────── -->
+      <div class="step" id="step-4">
+
+        <span class="inline-block bg-purple-100 text-purple-700 text-xs font-semibold px-2.5 py-0.5 rounded-full mb-3">Optional but recommended</span>
+        <h2 class="text-2xl font-bold text-gray-900 mb-2">Unlock a deeper analysis of your Google Ads account</h2>
+        <p class="text-sm text-gray-600 mb-5">Without this we can tell you what's possible. With it we can tell you <strong>exactly what's wrong and what to fix first.</strong></p>
+
+        <!-- Before / After comparison -->
+        <div class="rounded-xl border-2 border-purple-300 bg-purple-50 p-5 mb-6">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p class="font-semibold text-gray-700 mb-2">Without access</p>
+              <ul class="space-y-1.5 text-gray-500">
+                <li class="flex items-start"><span class="mr-1.5 text-gray-300 mt-0.5">•</span>Market & competitor overview</li>
+                <li class="flex items-start"><span class="mr-1.5 text-gray-300 mt-0.5">•</span>Estimated cost per new patient</li>
+                <li class="flex items-start"><span class="mr-1.5 text-gray-300 mt-0.5">•</span>Benchmark vs similar clinics</li>
+                <li class="flex items-start"><span class="mr-1.5 text-gray-300 mt-0.5">•</span>Growth opportunity summary</li>
+              </ul>
+            </div>
+            <div>
+              <p class="font-semibold text-purple-700 mb-2">With access</p>
+              <ul class="space-y-1.5 text-gray-700">
+                <li class="text-gray-400 text-xs italic">Everything on the left, PLUS:</li>
+                <li class="flex items-start"><svg class="w-4 h-4 text-green-500 mr-1.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Actual wasted spend identified</li>
+                <li class="flex items-start"><svg class="w-4 h-4 text-green-500 mr-1.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Keyword gaps vs competitors</li>
+                <li class="flex items-start"><svg class="w-4 h-4 text-green-500 mr-1.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Campaign structure audit</li>
+                <li class="flex items-start"><svg class="w-4 h-4 text-green-500 mr-1.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Quality score breakdown</li>
+                <li class="flex items-start"><svg class="w-4 h-4 text-green-500 mr-1.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Prioritised fix list before the call</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-5">
+          <!-- Has Google Ads -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Do you currently run Google Ads?</label>
+            <select id="has_google_ads" onchange="handleAdsChange()"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+              <option value="">Select an option…</option>
+              <option>Yes — I have an active account</option>
+              <option>Yes — managed by another agency</option>
+              <option>Yes — but paused or inactive</option>
+              <option>No — I don't run Google Ads yet</option>
+            </select>
+          </div>
+
+          <!-- Invite instructions — shown only when "Yes" selected -->
+          <div id="invite-panel" class="hidden rounded-xl border border-purple-200 bg-white p-5 space-y-4">
+            <p class="text-sm font-semibold text-gray-800">How to grant read-only access (takes about 2 minutes):</p>
+            <ol class="space-y-3 text-sm text-gray-700">
+              <li class="flex gap-3"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">1</span><span>Sign into Google Ads at <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">ads.google.com</code></span></li>
+              <li class="flex gap-3"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">2</span><span>Click <strong>Admin</strong> in the left sidebar, then <strong>Access and security</strong></span></li>
+              <li class="flex gap-3"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">3</span><span>Click <strong>+ Invite users</strong> in the top right</span></li>
+              <li class="flex gap-3">
+                <span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">4</span>
+                <span>Enter our email:
+                  <span id="copy-email" onclick="copyEmail()"
+                    class="cursor-pointer font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded ml-1 hover:bg-purple-100 transition-colors"
+                    title="Click to copy">pete@clinicmastery.com</span>
+                  <span id="copy-confirm" class="hidden text-green-600 text-xs ml-2">✓ Copied!</span>
+                </span>
+              </li>
+              <li class="flex gap-3"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">5</span><span>Set access level to <strong>Read only</strong></span></li>
+              <li class="flex gap-3"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center font-bold">6</span><span>Click <strong>Send invitation</strong></span></li>
+            </ol>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Have you sent the invitation?</label>
+              <select id="invite_sent"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                <option value="">Select one…</option>
+                <option>I'll do this after submitting</option>
+                <option>Yes, I've sent the invitation</option>
+                <option>I'd prefer to skip this for now</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- No ads reassurance -->
+          <div id="no-ads-msg" class="hidden rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800">
+            No problem — we'll design your initial campaign structure based on your market and competitors. You'll get a full launch strategy in your brief.
+          </div>
+        </div>
+
+        <!-- Submit buttons -->
+        <div class="flex justify-between items-center mt-6">
+          <button onclick="goBack(4)" class="text-gray-500 hover:text-gray-700 font-medium px-4 py-2.5 rounded-lg border border-gray-300 transition-colors">← Back</button>
+          <button id="submit-btn" onclick="submitForm()"
+            class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-7 py-2.5 rounded-lg transition-colors flex items-center gap-2">
+            Generate my growth brief →
+          </button>
+        </div>
+        <div class="text-center mt-3">
+          <button onclick="skipAds()" class="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors">
+            Skip Google Ads access and generate a standard brief
+          </button>
+        </div>
+      </div>
+
+      <!-- ─── THANK YOU (shown in-place after success) ────────────────── -->
+      <div class="step" id="step-thankyou">
+        <div class="text-center py-4">
+          <div class="flex justify-center mb-6">
+            <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+              </svg>
+            </div>
+          </div>
+          <h2 class="text-2xl font-bold text-gray-900 mb-2">Your brief is being generated</h2>
+          <p class="text-gray-500 text-sm mb-6">Thanks for taking the time to fill that in. We're putting together your personalised growth brief now and will be in touch shortly.</p>
+          <div class="rounded-lg bg-blue-50 border border-blue-100 px-5 py-4 text-sm text-blue-800 text-left space-y-2 mb-6">
+            <p class="font-semibold">What happens next?</p>
+            <ul class="space-y-1 text-blue-700">
+              <li>• We'll review your intake details</li>
+              <li>• Build your personalised growth brief</li>
+              <li>• Reach out to schedule a strategy call</li>
+            </ul>
+          </div>
+          <p class="text-xs text-gray-400">Questions? Email <a href="mailto:pete@clinicmastery.com.au" class="underline">pete@clinicmastery.com.au</a></p>
+        </div>
+      </div>
+
+    </div><!-- /card -->
+
+    <p class="mt-6 text-center text-xs text-gray-400">Your information is used only to prepare your growth brief. We don't share it.</p>
+  </div>
+
+  <!-- ─── JavaScript ──────────────────────────────────────────────────── -->
+  <script>
+    // ── CONFIG — update this URL once your backend is hosted ─────────────
+    const API_URL = 'https://YOUR-BACKEND-URL.railway.app/submit';
+    // ─────────────────────────────────────────────────────────────────────
+
+    const STEP_LABELS = [
+      '', // 1-indexed
+      'About your clinic',
+      'Patient & revenue',
+      'Goals & context',
+      'Google Ads access',
+    ];
+
+    let currentStep = 1;
+
+    // ── Progress bar ──────────────────────────────────────────────────────
+    function updateProgress(step) {
+      const pct = Math.round((step / 4) * 100);
+      document.getElementById('progress-bar').style.width = pct + '%';
+      document.getElementById('step-label').textContent = `Step ${step} of 4 — ${STEP_LABELS[step]}`;
+      document.getElementById('step-pct').textContent = pct + '%';
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById(`dot-${i}`).className =
+          'w-2.5 h-2.5 rounded-full ' + (i <= step ? 'bg-blue-600' : 'bg-gray-300');
+      }
+    }
+
+    function showStep(n) {
+      document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+      const el = document.getElementById(n === 'thankyou' ? 'step-thankyou' : `step-${n}`);
+      if (el) el.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ── Validation helpers ────────────────────────────────────────────────
+    function showErr(id, msg) {
+      const el = document.getElementById(`err-${id}`);
+      if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+      const inp = document.getElementById(id);
+      if (inp) inp.classList.add('border-red-400');
+    }
+
+    function clearErr(id) {
+      const el = document.getElementById(`err-${id}`);
+      if (el) el.classList.add('hidden');
+      const inp = document.getElementById(id);
+      if (inp) inp.classList.remove('border-red-400');
+    }
+
+    function val(id) {
+      return (document.getElementById(id)?.value || '').trim();
+    }
+
+    // ── Step validation ───────────────────────────────────────────────────
+    function validateStep(step) {
+      let ok = true;
+
+      if (step === 1) {
+        ['clinic_name','email','primary_specialty','suburb','state','num_practitioners','website_url']
+          .forEach(id => clearErr(id));
+
+        if (!val('clinic_name')) { showErr('clinic_name','Clinic name is required'); ok=false; }
+        const email = val('email');
+        if (!email) { showErr('email','Email is required'); ok=false; }
+        else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { showErr('email','Enter a valid email address'); ok=false; }
+        if (!val('primary_specialty')) { showErr('primary_specialty','Please select a specialty'); ok=false; }
+        if (!val('suburb')) { showErr('suburb','Suburb is required'); ok=false; }
+        if (!val('state')) { showErr('state','Please select a state'); ok=false; }
+        const np = parseInt(val('num_practitioners'));
+        if (!val('num_practitioners') || np < 1) { showErr('num_practitioners','Enter at least 1 practitioner'); ok=false; }
+        const url = val('website_url');
+        if (!url) { showErr('website_url','Website URL is required'); ok=false; }
+        else if (!/^https?:\/\/.+/.test(url)) { showErr('website_url','Enter a valid URL starting with https://'); ok=false; }
+      }
+
+      if (step === 2) {
+        ['avg_appointment_fee','avg_visits_per_patient','new_patients_per_month','monthly_ad_spend','appointment_types_to_grow']
+          .forEach(id => clearErr(id));
+
+        if (!val('avg_appointment_fee') || parseFloat(val('avg_appointment_fee')) <= 0)
+          { showErr('avg_appointment_fee','Enter average appointment fee'); ok=false; }
+        if (!val('avg_visits_per_patient') || parseFloat(val('avg_visits_per_patient')) <= 0)
+          { showErr('avg_visits_per_patient','Enter average visits per patient'); ok=false; }
+        if (val('new_patients_per_month') === '' || parseInt(val('new_patients_per_month')) < 0)
+          { showErr('new_patients_per_month','Enter new patients per month'); ok=false; }
+        if (val('monthly_ad_spend') === '')
+          { showErr('monthly_ad_spend','Enter monthly ad spend (0 if not running ads)'); ok=false; }
+        if (!val('appointment_types_to_grow'))
+          { showErr('appointment_types_to_grow','Enter at least one appointment type'); ok=false; }
+      }
+
+      if (step === 3) {
+        clearErr('main_goal');
+        if (!val('main_goal')) { showErr('main_goal','Please select your main goal'); ok=false; }
+      }
+
+      return ok;
+    }
+
+    // ── Navigation ────────────────────────────────────────────────────────
+    function goNext(fromStep) {
+      if (!validateStep(fromStep)) return;
+      currentStep = fromStep + 1;
+      updateProgress(currentStep);
+      showStep(currentStep);
+    }
+
+    function goBack(fromStep) {
+      currentStep = fromStep - 1;
+      updateProgress(currentStep);
+      showStep(currentStep);
+    }
+
+    // ── Google Ads conditional UI ─────────────────────────────────────────
+    function handleAdsChange() {
+      const v = val('has_google_ads');
+      const isYes = v.startsWith('Yes');
+      const isNo  = v.startsWith('No');
+      document.getElementById('invite-panel').classList.toggle('hidden', !isYes);
+      document.getElementById('no-ads-msg').classList.toggle('hidden', !isNo);
+    }
+
+    // ── Copy email to clipboard ───────────────────────────────────────────
+    function copyEmail() {
+      navigator.clipboard.writeText('pete@clinicmastery.com').then(() => {
+        const confirm = document.getElementById('copy-confirm');
+        confirm.classList.remove('hidden');
+        setTimeout(() => confirm.classList.add('hidden'), 2000);
+      });
+    }
+
+    // ── Build the payload from all form fields ────────────────────────────
+    function buildPayload(overrides = {}) {
+      return {
+        clinic_name:               val('clinic_name'),
+        email:                     val('email'),
+        primary_specialty:         val('primary_specialty'),
+        suburb:                    val('suburb'),
+        state:                     val('state'),
+        num_practitioners:         parseInt(val('num_practitioners')) || 1,
+        website_url:               val('website_url'),
+        avg_appointment_fee:       parseFloat(val('avg_appointment_fee')) || 0,
+        avg_visits_per_patient:    parseFloat(val('avg_visits_per_patient')) || 0,
+        new_patients_per_month:    parseInt(val('new_patients_per_month')) || 0,
+        monthly_ad_spend:          parseFloat(val('monthly_ad_spend')) || 0,
+        appointment_types_to_grow: val('appointment_types_to_grow'),
+        main_goal:                 val('main_goal'),
+        additional_context:        val('additional_context') || null,
+        has_google_ads:            val('has_google_ads') || null,
+        invite_sent:               val('invite_sent') || null,
+        ...overrides,
+      };
+    }
+
+    // ── Submit ────────────────────────────────────────────────────────────
+    async function submitForm(overrides = {}) {
+      const btn = document.getElementById('submit-btn');
+      const errBanner = document.getElementById('global-error');
+      errBanner.classList.add('hidden');
+
+      // Disable button + show spinner
+      btn.disabled = true;
+      btn.innerHTML = `<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg> Generating…`;
+
+      try {
+        const resp = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload(overrides)),
+        });
+
+        if (!resp.ok) {
+          let detail = `Server error (${resp.status})`;
+          try { const err = await resp.json(); if (err.detail) detail = err.detail; } catch(_) {}
+          throw new Error(detail);
+        }
+
+        // Success — hide progress bar and show thank-you panel
+        document.querySelector('.mb-8').classList.add('hidden'); // progress bar wrapper
+        showStep('thankyou');
+
+      } catch (err) {
+        errBanner.textContent = err.message || 'Something went wrong — please try again.';
+        errBanner.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = 'Generate my growth brief →';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    function skipAds() {
+      submitForm({ invite_sent: 'skipped' });
+    }
+  </script>
+</body>
+</html>

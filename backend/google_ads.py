@@ -164,11 +164,18 @@ def pull_account_data(customer_id: str) -> dict:
       - avg_quality_score
       - num_active_campaigns
     """
+    from datetime import timedelta
     client = _build_google_ads_client()
     ga_service = client.get_service("GoogleAdsService")
 
+    # GAQL doesn't support LAST_90_DAYS — use explicit date range
+    today = datetime.now(timezone.utc).date()
+    start_date = (today - timedelta(days=90)).strftime("%Y-%m-%d")
+    end_date = today.strftime("%Y-%m-%d")
+    date_filter = f"segments.date BETWEEN '{start_date}' AND '{end_date}'"
+
     # ── Campaign performance ──────────────────────────────────────────────────
-    campaign_query = """
+    campaign_query = f"""
         SELECT
             campaign.name,
             campaign.status,
@@ -179,7 +186,7 @@ def pull_account_data(customer_id: str) -> dict:
             metrics.ctr,
             metrics.average_cpc
         FROM campaign
-        WHERE segments.date DURING LAST_90_DAYS
+        WHERE {date_filter}
         ORDER BY metrics.cost_micros DESC
     """
     campaigns = []
@@ -220,17 +227,17 @@ def pull_account_data(customer_id: str) -> dict:
     top_campaigns = sorted(campaigns, key=lambda c: c["spend"], reverse=True)[:5]
 
     # ── Keyword analysis ──────────────────────────────────────────────────────
-    keyword_query = """
+    keyword_query = f"""
         SELECT
             ad_group_criterion.keyword.text,
             ad_group_criterion.keyword.match_type,
+            ad_group_criterion.quality_info.quality_score,
             metrics.cost_micros,
             metrics.conversions,
             metrics.clicks,
-            metrics.impressions,
-            metrics.quality_score
+            metrics.impressions
         FROM keyword_view
-        WHERE segments.date DURING LAST_90_DAYS
+        WHERE {date_filter}
         ORDER BY metrics.cost_micros DESC
         LIMIT 100
     """
@@ -240,7 +247,7 @@ def pull_account_data(customer_id: str) -> dict:
     keyword_response = ga_service.search(customer_id=customer_id, query=keyword_query)
     for row in keyword_response:
         kw_spend = row.metrics.cost_micros / 1_000_000
-        qs = row.metrics.quality_score
+        qs = row.ad_group_criterion.quality_info.quality_score
         match_type = (
             row.ad_group_criterion.keyword.match_type.name
             if hasattr(row.ad_group_criterion.keyword.match_type, "name")

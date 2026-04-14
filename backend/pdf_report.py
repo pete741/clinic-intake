@@ -1365,15 +1365,15 @@ def generate_intake_brief(submission: dict) -> bytes:
     _spacer(story, 2)
 
     ad_spend   = float(submission.get("monthly_ad_spend", 0) or 0)
-    # Budget split guidance: 60% location/core, 25% condition, 15% remarketing
-    budget_core  = ad_spend * 0.60 if ad_spend else None
-    budget_cond  = ad_spend * 0.25 if ad_spend else None
-    budget_rem   = ad_spend * 0.15 if ad_spend else None
+    # Budget split guidance: 70% location/core, 30% condition/symptom
+    # Note: remarketing is excluded — Google restricts healthcare remarketing
+    budget_core  = ad_spend * 0.70 if ad_spend else None
+    budget_cond  = ad_spend * 0.30 if ad_spend else None
 
     campaigns = [
         {
             "name": f"Search - {spec} | {suburb} (Core)",
-            "budget": _fmt_d(budget_core) + "/mo" if budget_core else "~60% of budget",
+            "budget": _fmt_d(budget_core) + "/mo" if budget_core else "~70% of budget",
             "type": "Search",
             "bidding": "Maximise Conversions (switch to Target CPA after 30+ conversions)",
             "ad_groups": [
@@ -1386,24 +1386,12 @@ def generate_intake_brief(submission: dict) -> bytes:
         },
         {
             "name": f"Search - {spec} | Condition/Symptom",
-            "budget": _fmt_d(budget_cond) + "/mo" if budget_cond else "~25% of budget",
+            "budget": _fmt_d(budget_cond) + "/mo" if budget_cond else "~30% of budget",
             "type": "Search",
             "bidding": "Maximise Clicks initially, then Maximise Conversions",
             "ad_groups": [g for g in _condition_keywords(spec_lc, suburb, appt)[:3]],
             "notes": "Higher volume, lower intent. Monitor search term report weekly "
                      "and aggressively add negatives. Separate ad groups per condition.",
-        },
-        {
-            "name": "Remarketing - Past Visitors",
-            "budget": _fmt_d(budget_rem) + "/mo" if budget_rem else "~15% of budget",
-            "type": "Display / Search Remarketing (RLSA)",
-            "bidding": "Target CPA",
-            "ad_groups": [
-                "Visited contact/booking page - did not convert",
-                "Visited service pages - 7-day window",
-            ],
-            "notes": "Requires Google tag on website. Low cost, high return. "
-                     "Exclude existing patients via customer match list.",
         },
     ]
 

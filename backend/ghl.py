@@ -235,39 +235,25 @@ async def create_or_update_contact(
     }
 
     async with httpx.AsyncClient() as client:
-        # Search for an existing contact by email first
-        existing_id = await _find_contact_by_email(client, submission.email)
-
-        if existing_id:
-            # Update the existing contact
-            resp = await client.put(
-                f"{BASE_URL}/contacts/{existing_id}",
-                headers=_headers(),
-                json=contact_payload,
+        # Upsert — GHL matches on email and creates or updates automatically
+        resp = await client.post(
+            f"{BASE_URL}/contacts/upsert",
+            headers=_headers(),
+            json=contact_payload,
+        )
+        if resp.status_code not in (200, 201):
+            logger.error(
+                f"Failed to upsert GHL contact: {resp.status_code} - {resp.text}"
             )
-            if resp.status_code not in (200, 201):
-                logger.error(
-                    f"Failed to update GHL contact {existing_id}: "
-                    f"{resp.status_code} — {resp.text}"
-                )
-                return None
-            logger.info(f"Updated GHL contact {existing_id} for {submission.clinic_name}")
-            return existing_id
-        else:
-            # Create a new contact
-            resp = await client.post(
-                f"{BASE_URL}/contacts/",
-                headers=_headers(),
-                json=contact_payload,
-            )
-            if resp.status_code not in (200, 201):
-                logger.error(
-                    f"Failed to create GHL contact: {resp.status_code} — {resp.text}"
-                )
-                return None
-            contact_id = resp.json().get("contact", {}).get("id")
-            logger.info(f"Created GHL contact {contact_id} for {submission.clinic_name}")
-            return contact_id
+            return None
+        data = resp.json()
+        contact_id = (
+            data.get("contact", {}).get("id")
+            or data.get("id")
+        )
+        action = "Updated" if data.get("traceId") else "Created"
+        logger.info(f"{action} GHL contact {contact_id} for {submission.clinic_name}")
+        return contact_id
 
 
 async def _find_contact_by_email(client: httpx.AsyncClient, email: str) -> Optional[str]:

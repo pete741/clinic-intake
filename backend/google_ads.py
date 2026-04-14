@@ -407,6 +407,7 @@ async def poll_for_access(
 
             stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
             clinic_words = _words(clinic_name) - stop
+            logger.info(f"  Matching against clinic_name='{clinic_name}' words={clinic_words}")
 
             matched_id = None
             for cid in customer_ids:

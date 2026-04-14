@@ -510,59 +510,132 @@ def _section_conversion(story, styles, data: dict):
     _ltv = (
         float(data.get("avg_appointment_fee", 0) or 0) *
         float(data.get("avg_visits_per_patient", 0) or 0)
-    ) or 999  # fallback avoids division/comparison errors when data is absent
+    ) or 0  # 0 means not provided
+
+    total_conv  = data.get("total_conversions_90d", 0)
+    cost_per_conv = data.get("cost_per_conversion", 0)
+    total_clicks = max(sum(c.get("clicks", 0) for c in data.get("top_campaigns", [])), 1)
+    conv_rate   = round(total_conv / total_clicks * 100, 1)
+
+    # Snapshot metrics row
+    snapshot_metrics = [
+        (_fmt_i(total_conv),       "Conversions (90d)"),
+        (f"{conv_rate}%",          "Conversion rate"),
+        (_fmt_d(cost_per_conv),    "Cost per conversion"),
+    ]
+    cells = [[
+        [Paragraph(v, styles["metric_val"]), Paragraph(l, styles["metric_lbl"])]
+        for v, l in snapshot_metrics
+    ]]
+    snap_tbl = Table(cells, colWidths=[CONTENT_W/3]*3)
+    snap_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+        ("BOX", (0, 0), (-1, -1), 1, PURPLE),
+        ("LINEAFTER", (0, 0), (-2, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(snap_tbl)
+    _spacer(story, 4)
+
+    # Healthcare floor: cost per conversion under $50 almost certainly means
+    # micro-conversions (button clicks, page views) not actual patient bookings.
+    suspicious_cpc = 0 < cost_per_conv < 50
 
     issues = data.get("conversion_issues", [])
     checks = [
         {
             "check": "Conversions being recorded",
-            "status": "ok" if data.get("total_conversions_90d", 0) > 0 else "fail",
+            "status": "ok" if total_conv > 0 else "fail",
             "detail": (
-                f"{data.get('total_conversions_90d', 0)} conversions recorded in 90 days."
-                if data.get("total_conversions_90d", 0) > 0
+                f"{total_conv} conversions recorded over 90 days."
+                if total_conv > 0
                 else "Zero conversions recorded. Tracking may be broken or not set up."
             ),
         },
         {
-            "check": "Conversion rate is plausible",
-            "status": "ok" if 1 < (data.get("total_conversions_90d", 0) /
-                                   max(sum(c.get("clicks",0) for c in data.get("top_campaigns",[])), 1) * 100) < 20
-                     else "warn",
-            "detail": "A conversion rate below 1% usually means tracking is missing clicks, "
-                      "above 20% often means duplicate conversion events are firing.",
+            "check": "Conversion value is realistic for healthcare",
+            "status": "fail" if suspicious_cpc else "ok",
+            "detail": (
+                f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is below $50. "
+                "In healthcare, a genuine patient booking costs far more to acquire. "
+                "This strongly suggests the account is recording a micro-conversion - "
+                "such as a button click, phone number reveal, or page scroll - "
+                "rather than an actual enquiry or booking. "
+                "Google is optimising for these cheap actions, not real patients."
+                if suspicious_cpc else
+                f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is within a plausible "
+                "range for a healthcare patient acquisition."
+            ),
         },
         {
-            "check": "Cost per conversion vs lifetime value",
+            "check": "Conversion rate is plausible",
             "status": (
-                "ok"   if data.get("cost_per_conversion", 0) < _ltv * 0.20 else
-                "warn" if data.get("cost_per_conversion", 0) < _ltv * 0.40 else
-                "fail"
+                "warn" if conv_rate < 1 or conv_rate > 30 else
+                "fail" if conv_rate > 50 else
+                "ok"
             ),
             "detail": (
-                f"Cost per conversion is {_fmt_d(data.get('cost_per_conversion', 0))} vs "
-                f"patient LTV of {_fmt_d(_ltv)} "
-                f"({_fmt_d(data.get('avg_appointment_fee', 0))} × {data.get('avg_visits_per_patient', 0)} visits). "
-                f"Target is under 20% of LTV ({_fmt_d(_ltv * 0.20)}). "
-                + ("Healthy - acquisition cost is within target." if data.get("cost_per_conversion", 0) < _ltv * 0.20
-                   else "Needs attention - acquisition cost exceeds 20% of patient lifetime value.")
+                f"Conversion rate is {conv_rate}%. "
+                + (
+                    "Below 1% usually means tracking is not capturing all converting sessions."
+                    if conv_rate < 1 else
+                    "Above 30% is implausibly high for real patient bookings and confirms "
+                    "a micro-conversion is being tracked instead of genuine enquiries."
+                    if conv_rate > 30 else
+                    "Within a normal range for a healthcare practice."
+                )
             ),
         },
     ]
-    # Append any extra issues from the data
+
+    # Only show the LTV check if we have LTV data and CPC is not suspicious
+    if _ltv > 0 and not suspicious_cpc:
+        checks.append({
+            "check": "Cost per conversion vs lifetime value",
+            "status": (
+                "ok"   if cost_per_conv < _ltv * 0.20 else
+                "warn" if cost_per_conv < _ltv * 0.40 else
+                "fail"
+            ),
+            "detail": (
+                f"Cost per conversion is {_fmt_d(cost_per_conv)} vs "
+                f"patient LTV of {_fmt_d(_ltv)} "
+                f"({_fmt_d(data.get('avg_appointment_fee', 0))} x {data.get('avg_visits_per_patient', 0)} visits). "
+                f"Target is under 20% of LTV ({_fmt_d(_ltv * 0.20)}). "
+                + ("Healthy - acquisition cost is within target."
+                   if cost_per_conv < _ltv * 0.20 else
+                   "Needs attention - acquisition cost exceeds 20% of patient lifetime value.")
+            ),
+        })
+    elif _ltv > 0 and suspicious_cpc:
+        checks.append({
+            "check": "Cost per conversion vs lifetime value",
+            "status": "fail",
+            "detail": (
+                f"Cannot assess accurately - the {_fmt_d(cost_per_conv)} cost per conversion "
+                "is almost certainly a micro-conversion, not a real patient booking. "
+                "Fix conversion tracking first, then re-evaluate against LTV."
+            ),
+        })
+
     for issue in issues:
-        checks.append({"check": issue.get("check",""), "status": issue.get("status","warn"),
-                       "detail": issue.get("detail","")})
+        checks.append({"check": issue.get("check", ""), "status": issue.get("status", "warn"),
+                       "detail": issue.get("detail", "")})
+
+    status_map = {
+        "ok":   lambda: Paragraph("✓ Pass", styles["tag_green"]),
+        "warn": lambda: Paragraph("⚠ Review", styles["tag_amber"]),
+        "fail": lambda: Paragraph("✗ Issue", styles["tag_red"]),
+    }
 
     rows = [["Check", "Status", "Detail"]]
     for c in checks:
-        status_map = {
-            "ok":   Paragraph("✓ Pass", styles["tag_green"]),
-            "warn": Paragraph("⚠ Review", styles["tag_amber"]),
-            "fail": Paragraph("✗ Issue", styles["tag_red"]),
-        }
         rows.append([
             Paragraph(c["check"], styles["body_bold"]),
-            status_map.get(c["status"], status_map["warn"]),
+            status_map.get(c["status"], status_map["warn"])(),
             Paragraph(c["detail"], styles["body"]),
         ])
 
@@ -570,11 +643,20 @@ def _section_conversion(story, styles, data: dict):
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(_tbl_style())
     story.append(tbl)
-    _info_box(story, styles,
-        "💡 <b>To verify conversion tracking:</b> In Google Ads → Tools → Measurement → "
-        "Conversions. Each conversion action should show 'Recording conversions' in green. "
-        "If any show 'No recent conversions' or 'Inactive', tracking needs fixing before "
-        "increasing spend.")
+
+    if suspicious_cpc:
+        _info_box(story, styles,
+            f"💡 <b>Action required:</b> Go to Google Ads → Tools → Measurement → Conversions "
+            f"and check what action is being recorded. It should be a phone call, form submission, "
+            f"or booking confirmation - not a click, scroll, or page visit. "
+            f"Fixing this is the single highest-leverage change available in this account.",
+            bg=RED_LIGHT, border=RED_WARN)
+    else:
+        _info_box(story, styles,
+            "💡 <b>To verify conversion tracking:</b> In Google Ads → Tools → Measurement → "
+            "Conversions. Each conversion action should show 'Recording conversions' in green. "
+            "If any show 'No recent conversions' or 'Inactive', tracking needs fixing before "
+            "increasing spend.")
 
 
 def _section_quality(story, styles, data: dict):
@@ -664,8 +746,10 @@ def _section_priorities(story, styles, data: dict):
     wasted       = data.get("wasted_keywords", [])
     irrelevant   = data.get("irrelevant_terms", [])
     qs           = data.get("avg_quality_score", 0)
-    conv_issues  = data.get("total_conversions_90d", 1) == 0
-    all_paused   = data.get("all_campaigns_paused", False)
+    conv_issues      = data.get("total_conversions_90d", 1) == 0
+    _cost_per_conv   = data.get("cost_per_conversion", 0)
+    micro_conversion = 0 < _cost_per_conv < 50
+    all_paused       = data.get("all_campaigns_paused", False)
     _brand_kws   = data.get("brand_keywords", [])
     _brand_spend = data.get("brand_spend") or sum(k.get("spend",0) for k in _brand_kws)
     _non_brand   = data.get("non_brand_spend") or max(data.get("total_spend_90d",0) - _brand_spend, 0)
@@ -689,6 +773,15 @@ def _section_priorities(story, styles, data: dict):
         priorities.append(("🔴", "Fix conversion tracking",
             "Zero conversions recorded - Google is optimising blind. "
             "Check Tools -> Conversions in Google Ads and fix before increasing budget.",
+            "Critical"))
+
+    if micro_conversion:
+        priorities.append(("🔴", f"Fix conversion tracking - micro-conversion detected ({_fmt_d(_cost_per_conv)}/conv)",
+            f"A cost per conversion of {_fmt_d(_cost_per_conv)} is not achievable for real patient bookings. "
+            "The account is recording a low-value action (click, scroll, phone reveal) as a conversion. "
+            "Google is optimising for these cheap events instead of actual patient enquiries. "
+            "Go to Tools -> Conversions, identify the action being tracked, and replace it with "
+            "a booking confirmation or genuine form submission.",
             "Critical"))
 
     if rank_losers:

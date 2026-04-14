@@ -49,7 +49,9 @@ def _send(subject: str, html: str, text: str, pdf_bytes: bytes, filename: str) -
     msg.attach(pdf_part)
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
             smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
             smtp.sendmail(GMAIL_ADDRESS, NOTIFY_EMAIL, msg.as_string())
         logger.info(f"Email sent: {subject}")
@@ -146,7 +148,9 @@ def send_submission_notification(submission: dict) -> bool:
     msg.attach(MIMEText(html, "html"))
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
             smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
             smtp.sendmail(GMAIL_ADDRESS, NOTIFY_EMAIL, msg.as_string())
         logger.info(f"Submission notification sent: {subject}")
@@ -167,7 +171,6 @@ def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
     from pdf_report import generate_prospect_email_draft
     draft = generate_prospect_email_draft(clinic_name, ads_data)
 
-    # Escape the draft for HTML display
     draft_html = draft.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br/>")
 
     subject = f"Google Ads Audit Ready — {clinic_name}"

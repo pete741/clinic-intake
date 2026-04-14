@@ -9,6 +9,7 @@ All emails are handled by GHL workflows triggered by contact tags.
 No email code lives here.
 """
 
+import asyncio
 import logging
 import os
 
@@ -18,7 +19,7 @@ from dotenv import load_dotenv
 
 from emailer import send_submission_notification
 from ghl import create_or_update_contact, setup_custom_fields
-from google_ads import add_to_polling_state, poll_for_access
+from google_ads import add_to_polling_state, get_resumable_polls, poll_for_access
 from models import IntakeSubmission
 
 load_dotenv()
@@ -56,9 +57,23 @@ async def on_startup():
     """
     Runs when the FastAPI server starts.
     Ensures all required GHL custom fields exist before we accept any submissions.
+    Resumes any polling tasks that were running before a deploy restarted the server.
     """
     logger.info("Server starting — running GHL custom field setup...")
     await setup_custom_fields()
+
+    # Resume polls killed by a deploy restart
+    pending = get_resumable_polls()
+    if pending:
+        logger.info(f"Resuming {len(pending)} pending poll(s) after restart")
+        for entry in pending:
+            asyncio.create_task(poll_for_access(
+                entry["clinic_name"],
+                entry["ghl_contact_id"],
+                entry.get("avg_appointment_fee", 0.0),
+                entry.get("avg_visits_per_patient", 0.0),
+            ))
+
     logger.info("Startup complete.")
 
 
@@ -140,8 +155,11 @@ async def submit_intake(
             f"Starting Google Ads access polling for {submission.clinic_name} "
             f"(contact: {ghl_contact_id})"
         )
-        # Register in polling state first (so it's trackable immediately)
-        add_to_polling_state(submission.clinic_name, ghl_contact_id)
+        # Register in polling state first (so it's trackable + resumable after deploy)
+        add_to_polling_state(
+            submission.clinic_name, ghl_contact_id,
+            submission.avg_appointment_fee, submission.avg_visits_per_patient,
+        )
 
         # Add the background polling task — runs async, doesn't block this response
         background_tasks.add_task(

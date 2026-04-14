@@ -63,10 +63,16 @@ def _save_state(state: dict) -> None:
         json.dump(state, f, indent=2)
 
 
-def add_to_polling_state(clinic_name: str, ghl_contact_id: str) -> None:
+def add_to_polling_state(
+    clinic_name: str,
+    ghl_contact_id: str,
+    avg_appointment_fee: float = 0.0,
+    avg_visits_per_patient: float = 0.0,
+) -> None:
     """
     Registers a clinic as pending Google Ads access.
     Called from main.py before the background task is started.
+    LTV fields are stored so polling can be resumed after a deploy restart.
     """
     state = _load_state()
     state[ghl_contact_id] = {
@@ -75,9 +81,36 @@ def add_to_polling_state(clinic_name: str, ghl_contact_id: str) -> None:
         "status": "pending",
         "started_at": datetime.now(timezone.utc).isoformat(),
         "cancel": False,
+        "avg_appointment_fee": avg_appointment_fee,
+        "avg_visits_per_patient": avg_visits_per_patient,
     }
     _save_state(state)
     logger.info(f"Added {clinic_name} ({ghl_contact_id}) to polling state")
+
+
+def get_resumable_polls() -> list[dict]:
+    """
+    Returns all polling entries that are still pending and within the 72-hour window.
+    Called on server startup to resume any polls killed by a deploy.
+    """
+    state = _load_state()
+    now = datetime.now(timezone.utc)
+    resumable = []
+    for entry in state.values():
+        if entry.get("status") != "pending" or entry.get("cancel"):
+            continue
+        try:
+            started = datetime.fromisoformat(entry["started_at"])
+            elapsed = (now - started).total_seconds()
+        except (KeyError, ValueError):
+            continue
+        if elapsed < MAX_POLL_DURATION_SECONDS:
+            resumable.append(entry)
+            logger.info(
+                f"Will resume polling for {entry['clinic_name']} "
+                f"({elapsed / 3600:.1f}h elapsed)"
+            )
+    return resumable
 
 
 def cancel_polling(ghl_contact_id: str) -> None:
@@ -184,7 +217,10 @@ def pull_account_data(customer_id: str) -> dict:
             metrics.impressions,
             metrics.conversions,
             metrics.ctr,
-            metrics.average_cpc
+            metrics.average_cpc,
+            metrics.search_impression_share,
+            metrics.search_budget_lost_impression_share,
+            metrics.search_rank_lost_impression_share
         FROM campaign
         WHERE {date_filter}
         ORDER BY metrics.cost_micros DESC
@@ -205,6 +241,14 @@ def pull_account_data(customer_id: str) -> dict:
         if status_name == "ENABLED":
             num_active += 1
 
+        # Impression share values can be None/sentinel when there's no search data
+        def _safe_pct(val):
+            try:
+                f = float(val)
+                return round(f * 100, 1) if 0 <= f <= 1 else None
+            except (TypeError, ValueError):
+                return None
+
         campaigns.append({
             "name": row.campaign.name,
             "status": status_name,
@@ -214,6 +258,9 @@ def pull_account_data(customer_id: str) -> dict:
             "impressions": row.metrics.impressions,
             "ctr": round(row.metrics.ctr * 100, 2),  # as percentage
             "avg_cpc": round(row.metrics.average_cpc / 1_000_000, 2),
+            "impression_share": _safe_pct(row.metrics.search_impression_share),
+            "lost_to_budget": _safe_pct(row.metrics.search_budget_lost_impression_share),
+            "lost_to_rank": _safe_pct(row.metrics.search_rank_lost_impression_share),
         })
 
     total_spend = total_spend_micros / 1_000_000
@@ -271,10 +318,22 @@ def pull_account_data(customer_id: str) -> dict:
     ]
     wasted_keywords = sorted(wasted_keywords, key=lambda k: k["spend"], reverse=True)
 
+    # Low-QS keywords: rated 1-5 with any spend (QS 0 = unrated, skip those)
+    low_qs_keywords = sorted(
+        [kw for kw in keywords if 1 <= kw["quality_score"] <= 5 and kw["spend"] > 0],
+        key=lambda k: k["spend"], reverse=True,
+    )[:20]
+
     avg_quality_score = (
         round(sum(quality_scores) / len(quality_scores), 1)
         if quality_scores
         else 0.0
+    )
+
+    all_spend_campaigns = [c for c in campaigns if c["spend"] > 0]
+    all_campaigns_paused = (
+        bool(all_spend_campaigns)
+        and all(c["status"] == "PAUSED" for c in all_spend_campaigns)
     )
 
     return {
@@ -284,7 +343,9 @@ def pull_account_data(customer_id: str) -> dict:
         "total_conversions_90d": int(total_conversions),
         "cost_per_conversion": cost_per_conversion,
         "top_campaigns": top_campaigns,
-        "wasted_keywords": wasted_keywords[:20],  # cap at 20 for readability
+        "all_campaigns_paused": all_campaigns_paused,
+        "wasted_keywords": wasted_keywords[:20],
+        "low_qs_keywords": low_qs_keywords,
         "avg_quality_score": avg_quality_score,
         "num_active_campaigns": num_active,
     }

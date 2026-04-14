@@ -356,7 +356,7 @@
               <span>Enter our email:
                 <span id="copy-email" onclick="copyEmail()"
                   style="cursor:pointer; font-weight:700; color:var(--brand); background:var(--brand-light); padding:0.1rem 0.5rem; border-radius:0.3rem; margin-left:0.2rem;"
-                  title="Click to copy">pete@clinicmastery.com</span>
+                  title="Click to copy">clinicmasteryads@gmail.com</span>
                 <span id="copy-ok" style="display:none; color:#16a34a; font-size:0.72rem; margin-left:0.3rem;">✓ Copied!</span>
               </span>
             </li>
@@ -531,7 +531,7 @@ function handleAds() {
 }
 
 function copyEmail() {
-  navigator.clipboard.writeText('pete@clinicmastery.com').then(()=>{
+  navigator.clipboard.writeText('clinicmasteryads@gmail.com').then(()=>{
     const ok = document.getElementById('copy-ok');
     ok.style.display='inline';
     setTimeout(()=>ok.style.display='none', 2000);

@@ -285,7 +285,12 @@ def pull_account_data(customer_id: str) -> dict:
 
 # ── Polling background task ───────────────────────────────────────────────────
 
-async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
+async def poll_for_access(
+    clinic_name: str,
+    ghl_contact_id: str,
+    avg_appointment_fee: float = 0.0,
+    avg_visits_per_patient: float = 0.0,
+) -> None:
     """
     Background task: polls accessible Google Ads accounts every 15 minutes
     for up to 72 hours, waiting for the clinic to appear after granting access.
@@ -326,15 +331,21 @@ async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
                 f"[Poll {ghl_contact_id}] Found {len(customer_ids)} accessible accounts"
             )
 
-            # Try to match by clinic name in the account's descriptive name
+            # Try to match by clinic name in the account's descriptive name.
+            # Strip punctuation before comparing so "Clinic#" matches "clinic".
+            import re as _re
+            def _words(s):
+                return set(_re.sub(r'[^a-z0-9\s]', '', s.lower()).split())
+
+            stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
+            clinic_words = _words(clinic_name) - stop
+
             matched_id = None
             for cid in customer_ids:
                 account_name = _get_account_name(client, cid)
-                logger.debug(f"  Account: {cid} → '{account_name}'")
-                # Fuzzy match: check if key words from the clinic name appear in the account name
-                clinic_words = set(clinic_name.lower().split())
-                account_words = set(account_name.lower().split())
-                if clinic_words & account_words:  # any word overlap
+                logger.info(f"  Account: {cid} -> '{account_name}'")
+                account_words = _words(account_name) - stop
+                if clinic_words & account_words:  # any meaningful word overlap
                     matched_id = cid
                     logger.info(
                         f"Matched clinic '{clinic_name}' to Google Ads account "
@@ -366,6 +377,9 @@ async def poll_for_access(clinic_name: str, ghl_contact_id: str) -> None:
                 try:
                     from pdf_report import generate_pdf
                     from emailer import send_ads_report
+                    # Merge intake context so the PDF can show LTV
+                    summary["avg_appointment_fee"]   = avg_appointment_fee
+                    summary["avg_visits_per_patient"] = avg_visits_per_patient
                     pdf_bytes = generate_pdf(summary, clinic_name)
                     sent = send_ads_report(clinic_name, pdf_bytes, summary)
                     if sent:

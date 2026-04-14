@@ -420,6 +420,7 @@
 <script>
 // ── GHL Config ─────────────────────────────────────────────────────────────
 const GHL_API_KEY   = 'pit-454801c2-5eaa-43b8-b08b-83f22eb242be';
+const BACKEND_URL   = 'https://clinic-intake.onrender.com';
 const GHL_LOCATION  = 'EP54V2UEoSXiHpGoeEN0';
 const GHL_API_BASE  = 'https://services.leadconnectorhq.com';
 
@@ -610,6 +611,32 @@ async function doSubmit(inviteSentOverride) {
       const err = await res.json().catch(()=>({}));
       throw new Error(err.message || `Error ${res.status}`);
     }
+
+    // Also notify backend so it can start Google Ads polling / generate intake brief
+    const backendPayload = {
+      clinic_name:               v('clinic_name'),
+      email:                     v('email'),
+      primary_specialty:         v('primary_specialty'),
+      suburb:                    v('suburb'),
+      state:                     v('state'),
+      num_practitioners:         parseInt(v('num_practitioners')) || 1,
+      website_url:               v('website_url'),
+      avg_appointment_fee:       parseFloat(v('avg_appointment_fee')) || 0,
+      avg_visits_per_patient:    parseFloat(v('avg_visits_per_patient')) || 0,
+      new_patients_per_month:    parseInt(v('new_patients_per_month')) || 0,
+      monthly_ad_spend:          parseFloat(v('monthly_ad_spend')) || 0,
+      appointment_types_to_grow: v('appointment_types_to_grow'),
+      main_goal:                 v('main_goal'),
+      additional_context:        v('additional_context') || '',
+      has_google_ads:            v('has_google_ads') || 'No',
+      invite_sent:               inviteSentOverride || v('invite_sent') || 'Not sent',
+    };
+    // Fire and forget — don't block the success screen on this
+    fetch(`${BACKEND_URL}/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backendPayload),
+    }).catch(() => {}); // silently ignore if backend is sleeping
 
     // Success — hide progress, show thank you
     document.querySelector('[style*="margin-bottom:2rem"]').style.display = 'none';

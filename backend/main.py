@@ -16,6 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
+from emailer import send_submission_notification
 from ghl import create_or_update_contact, setup_custom_fields
 from google_ads import add_to_polling_state, poll_for_access
 from models import IntakeSubmission
@@ -130,6 +131,9 @@ async def submit_intake(
         f"with tags: intake-submitted, {ads_tag}"
     )
 
+    # Immediate notification to pete — fires before any PDF generation
+    background_tasks.add_task(send_submission_notification, submission.model_dump())
+
     # If the clinic confirmed sending the Google Ads invite, start polling
     if submission.has_google_ads_yes() and submission.invite_confirmed():
         logger.info(
@@ -140,7 +144,13 @@ async def submit_intake(
         add_to_polling_state(submission.clinic_name, ghl_contact_id)
 
         # Add the background polling task — runs async, doesn't block this response
-        background_tasks.add_task(poll_for_access, submission.clinic_name, ghl_contact_id)
+        background_tasks.add_task(
+            poll_for_access,
+            submission.clinic_name,
+            ghl_contact_id,
+            submission.avg_appointment_fee,
+            submission.avg_visits_per_patient,
+        )
 
     elif ads_tag == "ads-not-applicable":
         # No Google Ads access — generate a standard intake brief and email it

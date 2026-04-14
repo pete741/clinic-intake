@@ -65,6 +65,100 @@ def _send(subject: str, html: str, text: str, pdf_bytes: bytes, filename: str) -
         return False
 
 
+def send_submission_notification(submission: dict) -> bool:
+    """
+    Fires immediately when the intake form is received — no PDF, just a
+    quick heads-up email so pete knows a new clinic has come through.
+    """
+    clinic_name = submission.get("clinic_name", "Unknown")
+    has_ads     = submission.get("has_google_ads") or "Not provided"
+    invite      = submission.get("invite_sent") or "Not provided"
+
+    if "Yes" in has_ads and invite not in ("skipped", "Not provided", "Not sent"):
+        ads_status = "Running Google Ads - invite sent, audit will follow"
+    elif "Yes" in has_ads:
+        ads_status = "Running Google Ads - invite not yet sent"
+    else:
+        ads_status = "Not running Google Ads"
+
+    subject = f"New Intake Submission - {clinic_name}"
+
+    rows = [
+        ("Specialty",         submission.get("primary_specialty", "-")),
+        ("Location",          f"{submission.get('suburb', '-')}, {submission.get('state', '-')}"),
+        ("Practitioners",     submission.get("num_practitioners", "-")),
+        ("Website",           submission.get("website_url", "-")),
+        ("Avg appt fee",      f"${float(submission.get('avg_appointment_fee', 0) or 0):,.0f}"),
+        ("Avg visits/patient",submission.get("avg_visits_per_patient", "-")),
+        ("New patients/mo",   submission.get("new_patients_per_month", "-")),
+        ("Monthly ad spend",  f"${float(submission.get('monthly_ad_spend', 0) or 0):,.0f}"),
+        ("Goal",              submission.get("main_goal", "-")),
+        ("Appt types to grow",submission.get("appointment_types_to_grow", "-")),
+        ("Google Ads",        ads_status),
+        ("Additional context",submission.get("additional_context") or "-"),
+    ]
+
+    row_html = ""
+    for i, (label, value) in enumerate(rows):
+        bg = 'style="background:#eeecfb;"' if i % 2 == 0 else ""
+        row_html += (
+            f'<tr {bg}>'
+            f'<td style="padding:8px 12px;font-weight:600;color:#534AB7;width:38%;">{label}</td>'
+            f'<td style="padding:8px 12px;color:#374151;">{value}</td>'
+            f"</tr>\n"
+        )
+
+    html = f"""
+<div style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:24px;">
+
+  <div style="background:#534AB7;padding:16px 24px;border-radius:8px 8px 0 0;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">New Intake Submission</h1>
+    <p style="color:#c4b9f5;margin:4px 0 0;font-size:13px;">{clinic_name}</p>
+  </div>
+
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;
+              padding:24px;border-radius:0 0 8px 8px;">
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+{row_html}
+    </table>
+
+    <p style="color:#6b7280;font-size:12px;margin:16px 0 0;">
+      Full details saved to GHL. PDF brief or audit report to follow.
+    </p>
+
+  </div>
+</div>
+"""
+
+    text_rows = "\n".join(f"  {label}: {value}" for label, value in rows)
+    text = f"New intake from {clinic_name}\n\n{text_rows}"
+
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        logger.error("GMAIL credentials not set — cannot send submission notification")
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = GMAIL_ADDRESS
+    msg["To"]      = NOTIFY_EMAIL
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+            smtp.sendmail(GMAIL_ADDRESS, NOTIFY_EMAIL, msg.as_string())
+        logger.info(f"Submission notification sent: {subject}")
+        return True
+    except smtplib.SMTPAuthenticationError:
+        logger.error("Gmail auth failed sending submission notification")
+        return False
+    except Exception as exc:
+        logger.error(f"Submission notification send failed: {exc}")
+        return False
+
+
 def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
     """
     Emails the Google Ads audit PDF to pete, with a copy-paste prospect
@@ -122,14 +216,18 @@ def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
 def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> bool:
     """
     Emails the standard intake brief PDF to pete for clinics that didn't
-    provide Google Ads access.
+    provide Google Ads access. Includes a copy-paste draft email in the body.
     """
+    from pdf_report import generate_intake_email_draft
+    draft = generate_intake_email_draft(clinic_name, submission)
+    draft_html = draft.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+
     has_ads = submission.get("has_google_ads") or "Not provided"
     skipped = submission.get("invite_sent") == "skipped"
     reason  = "skipped Google Ads access" if skipped else (
               "doesn't run Google Ads" if "No" in has_ads else "did not provide access")
 
-    subject = f"New Intake Brief — {clinic_name}"
+    subject = f"New Intake Brief - {clinic_name}"
 
     html = f"""
 <div style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:24px;">
@@ -150,28 +248,43 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
       <tr style="background:#eeecfb;">
         <td style="padding:8px 12px;font-weight:600;color:#534AB7;width:40%;">Specialty</td>
-        <td style="padding:8px 12px;color:#374151;">{submission.get('primary_specialty','—')}</td>
+        <td style="padding:8px 12px;color:#374151;">{submission.get('primary_specialty', '-')}</td>
       </tr>
       <tr>
         <td style="padding:8px 12px;font-weight:600;color:#534AB7;">Location</td>
-        <td style="padding:8px 12px;color:#374151;">{submission.get('suburb','—')}, {submission.get('state','—')}</td>
+        <td style="padding:8px 12px;color:#374151;">{submission.get('suburb', '-')}, {submission.get('state', '-')}</td>
       </tr>
       <tr style="background:#eeecfb;">
         <td style="padding:8px 12px;font-weight:600;color:#534AB7;">Goal</td>
-        <td style="padding:8px 12px;color:#374151;">{submission.get('main_goal','—')}</td>
+        <td style="padding:8px 12px;color:#374151;">{submission.get('main_goal', '-')}</td>
       </tr>
       <tr>
         <td style="padding:8px 12px;font-weight:600;color:#534AB7;">Monthly ad spend</td>
-        <td style="padding:8px 12px;color:#374151;">${float(submission.get('monthly_ad_spend',0) or 0):,.0f}</td>
+        <td style="padding:8px 12px;color:#374151;">${float(submission.get('monthly_ad_spend', 0) or 0):,.0f}</td>
       </tr>
       <tr style="background:#eeecfb;">
         <td style="padding:8px 12px;font-weight:600;color:#534AB7;">New patients/month</td>
-        <td style="padding:8px 12px;color:#374151;">{submission.get('new_patients_per_month','—')}</td>
+        <td style="padding:8px 12px;color:#374151;">{submission.get('new_patients_per_month', '-')}</td>
       </tr>
     </table>
 
+    <hr style="border:none;border-top:2px solid #D4B22F;margin:20px 0;" />
+
+    <h2 style="font-size:15px;color:#534AB7;margin:0 0 8px;">
+      Draft email to send to the clinic
+    </h2>
+    <p style="color:#6b7280;font-size:12px;margin:0 0 12px;">
+      Copy, personalise the bracketed sections, and send with the PDF attached.
+    </p>
+
+    <div style="background:#fff;border:1px solid #d1d5db;border-radius:6px;
+                padding:16px 20px;font-family:monospace;font-size:13px;
+                color:#1a1a2e;line-height:1.6;white-space:pre-wrap;">
+{draft_html}
+    </div>
+
     <p style="color:#6b7280;font-size:12px;margin:16px 0 0;">
-      Full details are saved on the GHL contact. Brief attached as PDF.
+      Full details are saved on the GHL contact.
     </p>
 
   </div>
@@ -182,9 +295,9 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
         f"New intake from {clinic_name} ({reason}).\n"
         f"Specialty: {submission.get('primary_specialty')}\n"
         f"Location: {submission.get('suburb')}, {submission.get('state')}\n"
-        f"Goal: {submission.get('main_goal')}\n"
-        f"Brief attached."
+        f"Goal: {submission.get('main_goal')}\n\n"
+        f"--- DRAFT EMAIL ---\n\n{draft}"
     )
 
-    safe = clinic_name.lower().replace(" ","_").replace("/","-")
+    safe = clinic_name.lower().replace(" ", "_").replace("/", "-")
     return _send(subject, html, text, pdf_bytes, f"intake_brief_{safe}.pdf")

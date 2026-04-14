@@ -3,5 +3,5 @@ uvicorn[standard]==0.29.0
 httpx==0.27.0
 python-dotenv==1.0.1
 pydantic[email]==2.7.1
-google-ads==28.0.0.post1
+google-ads==30.0.0
 reportlab==4.2.2

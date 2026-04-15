@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clinic Growth Brief | Clinic Mastery</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/css/intlTelInput.css" />
   <style>
     :root { --brand: #534AB7; --brand-dark: #4239a0; --brand-light: #eeecfb; }
 
@@ -99,6 +100,14 @@
       flex-shrink: 0;
     }
 
+    /* intl-tel-input overrides to match form style */
+    .iti { width: 100%; }
+    .iti__flag-container { z-index: 10; }
+    .iti__selected-flag { border-radius: 0.5rem 0 0 0.5rem; background: #f9fafb; border-right: 1px solid #d1d5db; }
+    .iti input { border-radius: 0.5rem; }
+    .iti--separate-dial-code .iti__selected-flag { background: #f9fafb; }
+    .iti--separate-dial-code input { padding-left: 90px !important; }
+
     .spin {
       animation: spin 1s linear infinite;
       border: 2px solid rgba(255,255,255,0.4);
@@ -161,6 +170,12 @@
           <label style="display:block; font-size:0.8rem; font-weight:500; color:#374151; margin-bottom:0.3rem;">Email address *</label>
           <input id="email" class="form-input" type="email" placeholder="you@yourclinic.com.au" />
           <div class="err-msg" id="e-email">Enter a valid email address</div>
+        </div>
+
+        <div>
+          <label style="display:block; font-size:0.8rem; font-weight:500; color:#374151; margin-bottom:0.3rem;">Mobile number *</label>
+          <input id="phone" class="form-input" type="tel" placeholder="Mobile number" />
+          <div class="err-msg" id="e-phone">Enter a valid mobile number</div>
         </div>
 
         <div>
@@ -417,6 +432,7 @@
   <p style="text-align:center; font-size:0.72rem; color:#9ca3af; margin-top:1.25rem;">Your information is used only to prepare your growth brief. We don't share it.</p>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/intlTelInput.min.js"></script>
 <script>
 // ── GHL Config ─────────────────────────────────────────────────────────────
 const GHL_API_KEY   = 'pit-454801c2-5eaa-43b8-b08b-83f22eb242be';
@@ -447,6 +463,17 @@ const FIELDS = {
 
 const LABELS = ['','About your clinic','Patient & revenue','Goals & context','Google Ads access'];
 let cur = 1;
+let iti; // intl-tel-input instance
+
+// ── Phone field init ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  iti = window.intlTelInput(document.getElementById('phone'), {
+    initialCountry: 'au',
+    preferredCountries: ['au', 'nz', 'gb', 'us', 'ca'],
+    separateDialCode: true,
+    utilsScript: 'https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/utils.js',
+  });
+});
 
 // ── Progress ────────────────────────────────────────────────────────────────
 function setProgress(n) {
@@ -480,12 +507,13 @@ function setErr(id, msg, show) {
 function validate(step) {
   let ok = true;
   if(step===1) {
-    const fields = ['clinic_name','email','primary_specialty','suburb','state','num_practitioners','website_url'];
+    const fields = ['clinic_name','email','phone','primary_specialty','suburb','state','num_practitioners','website_url'];
     fields.forEach(f=>setErr(f,'',false));
     if(!v('clinic_name'))        { setErr('clinic_name','Clinic name is required',true); ok=false; }
     const em = v('email');
     if(!em)                      { setErr('email','Email is required',true); ok=false; }
     else if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { setErr('email','Enter a valid email address',true); ok=false; }
+    if(!iti || !iti.isValidNumber()) { setErr('phone','Enter a valid mobile number',true); ok=false; }
     if(!v('primary_specialty'))  { setErr('primary_specialty','Please select a specialty',true); ok=false; }
     if(!v('suburb'))             { setErr('suburb','Suburb is required',true); ok=false; }
     if(!v('state'))              { setErr('state','Please select a state',true); ok=false; }
@@ -556,6 +584,7 @@ function buildPayload(inviteSentOverride) {
     locationId: GHL_LOCATION,
     name:       v('clinic_name'),
     email:      v('email'),
+    phone:      iti ? iti.getNumber() : '',
     source:     'Intake Form',
     tags: [
       'intake-submitted',
@@ -620,6 +649,7 @@ async function doSubmit(inviteSentOverride) {
       body: JSON.stringify({
         clinic_name:               v('clinic_name'),
         email:                     v('email'),
+        phone:                     iti ? iti.getNumber() : null,
         primary_specialty:         v('primary_specialty'),
         suburb:                    v('suburb'),
         state:                     v('state'),

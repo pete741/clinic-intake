@@ -29,6 +29,9 @@ class IntakeSubmission(BaseModel):
     main_goal: str
     additional_context: Optional[str] = None
 
+    # Contact
+    phone: Optional[str] = None
+
     # Step 4 — Google Ads access (entirely optional)
     has_google_ads: Optional[str] = None
     invite_sent: Optional[str] = None

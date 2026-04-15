@@ -233,6 +233,8 @@ async def create_or_update_contact(
         "source": "Intake Form",
         "customFields": custom_fields,
     }
+    if submission.phone:
+        contact_payload["phone"] = submission.phone
 
     async with httpx.AsyncClient() as client:
         # Upsert — GHL matches on email and creates or updates automatically

@@ -202,9 +202,9 @@ async def create_or_update_contact(
     """
     Creates or updates a GHL contact for the incoming intake submission.
 
-    1. Searches for an existing contact by email.
-    2. If found, updates it; if not, creates it.
-    3. Applies tags that trigger GHL workflows (no email code here — GHL handles it).
+    Matching priority:
+      1. Phone number — if provided, search GHL by phone first
+      2. Email upsert — fallback if no phone match found
 
     Returns the GHL contact ID, or None on failure.
     """
@@ -237,7 +237,27 @@ async def create_or_update_contact(
         contact_payload["phone"] = submission.phone
 
     async with httpx.AsyncClient() as client:
-        # Upsert — GHL matches on email and creates or updates automatically
+        contact_id = None
+
+        # 1. Phone-first: search for existing contact by phone number
+        if submission.phone:
+            contact_id = await _find_contact_by_phone(client, submission.phone)
+            if contact_id:
+                logger.info(f"Found existing contact {contact_id} by phone — updating")
+                resp = await client.put(
+                    f"{BASE_URL}/contacts/{contact_id}",
+                    headers=_headers(),
+                    json=contact_payload,
+                )
+                if resp.status_code not in (200, 201):
+                    logger.error(
+                        f"Failed to update GHL contact by phone: {resp.status_code} - {resp.text}"
+                    )
+                    return None
+                logger.info(f"Updated GHL contact {contact_id} for {submission.clinic_name}")
+                return contact_id
+
+        # 2. Fall back to email upsert (creates if new, updates if email matches)
         resp = await client.post(
             f"{BASE_URL}/contacts/upsert",
             headers=_headers(),
@@ -256,6 +276,23 @@ async def create_or_update_contact(
         action = "Updated" if data.get("traceId") else "Created"
         logger.info(f"{action} GHL contact {contact_id} for {submission.clinic_name}")
         return contact_id
+
+
+async def _find_contact_by_phone(client: httpx.AsyncClient, phone: str) -> Optional[str]:
+    """
+    Searches GHL for a contact with the given phone number.
+    Returns the contact ID if found, None otherwise.
+    """
+    resp = await client.get(
+        f"{BASE_URL}/contacts/search",
+        headers=_headers(),
+        params={"phone": phone, "locationId": GHL_LOCATION_ID},
+    )
+    if resp.status_code != 200:
+        logger.error(f"GHL phone search failed: {resp.status_code} — {resp.text}")
+        return None
+    contacts = resp.json().get("contacts", [])
+    return contacts[0].get("id") if contacts else None
 
 
 async def _find_contact_by_email(client: httpx.AsyncClient, email: str) -> Optional[str]:

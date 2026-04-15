@@ -626,20 +626,49 @@ async function doSubmit(inviteSentOverride) {
     const payload    = buildPayload(inviteSentOverride);
     const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
 
-    // 1. Upsert into GHL — creates if new, updates if email already exists
-    const res = await fetch(`${GHL_API_BASE}/contacts/upsert`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${GHL_API_KEY}`,
-        Version: '2021-07-28',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    // 1. Phone-first: search for existing contact by phone, fall back to email upsert
+    const phoneNum = iti ? iti.getNumber() : '';
+    let ghlRes;
 
-    if(!res.ok) {
-      const err = await res.json().catch(()=>({}));
-      throw new Error(err.message || `Error ${res.status}`);
+    if (phoneNum) {
+      const searchRes = await fetch(
+        `${GHL_API_BASE}/contacts/search?locationId=${GHL_LOCATION}&phone=${encodeURIComponent(phoneNum)}`,
+        { headers: { Authorization: `Bearer ${GHL_API_KEY}`, Version: '2021-07-28' } }
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const existing = (searchData.contacts || [])[0];
+        if (existing) {
+          // Found by phone — update that contact directly
+          ghlRes = await fetch(`${GHL_API_BASE}/contacts/${existing.id}`, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${GHL_API_KEY}`,
+              Version: '2021-07-28',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+        }
+      }
+    }
+
+    if (!ghlRes) {
+      // Fall back to email upsert
+      ghlRes = await fetch(`${GHL_API_BASE}/contacts/upsert`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GHL_API_KEY}`,
+          Version: '2021-07-28',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    if(!ghlRes.ok) {
+      const err = await ghlRes.json().catch(()=>({}));
+      throw new Error(err.message || `Error ${ghlRes.status}`);
     }
 
     // 2. Notify backend — fire-and-forget so the user isn't blocked by any backend delay

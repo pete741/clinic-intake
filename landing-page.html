@@ -30,22 +30,45 @@
     }
 
     /* ── Nav ──────────────────────────────────────────────────────────── */
-    .nav {
+    .nav-wrapper {
       position: sticky;
-      top: 0;
+      top: 14px;
       z-index: 100;
-      background: rgba(254,254,254,0.92);
+      padding: 0 1.5rem;
+    }
+    .nav {
+      background: rgba(255,255,255,0.92);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-      padding: 0.875rem 2rem;
+      border-radius: 100px;
+      box-shadow:
+        0px 0.6px 0.6px -1.25px rgba(186,186,186,0.45),
+        0px 2.3px 2.3px -2.5px rgba(186,186,186,0.35),
+        0px 6px 6px -3.75px rgba(186,186,186,0.2),
+        0px 14px 14px -5px rgba(186,186,186,0.12);
+      padding: 0.75rem 1.75rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      max-width: 1100px;
+      margin: 0 auto;
     }
     .nav-logo img {
-      height: 36px;
+      height: 34px;
       display: block;
+    }
+    .nav-cta {
+      background: linear-gradient(90deg, var(--cta-from) 0%, var(--cta-to) 100%);
+      color: #1a1a1a;
+      font-family: 'Lexend', sans-serif;
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 0.5rem 1.1rem;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
     }
     .nav-tagline {
       font-size: 0.72rem;
@@ -150,16 +173,16 @@
       font-weight: 700;
       font-size: 0.95rem;
       padding: 0.875rem 2rem;
-      border-radius: 12px;
+      border-radius: 4px;
       border: none;
       cursor: pointer;
       text-decoration: none;
-      box-shadow: 0 4px 24px rgba(176,139,46,0.45);
+      box-shadow: 0 4px 31px rgba(176,139,46,0.35);
       transition: transform 0.15s, box-shadow 0.15s;
     }
     .cta-btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 32px rgba(176,139,46,0.55);
+      box-shadow: 0 8px 31px rgba(176,139,46,0.5);
     }
 
     /* ── Benefits ─────────────────────────────────────────────────────── */
@@ -194,10 +217,10 @@
     }
     .benefit-card {
       background: #fff;
-      border-radius: 1rem;
+      border-radius: 16px;
       padding: 1.75rem;
       border: 1px solid var(--border);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      box-shadow: 0 10px 30px rgba(62,15,21,0.07);
     }
     .benefit-num {
       width: 2.5rem;
@@ -267,7 +290,7 @@
       font-family: 'Lexend', sans-serif;
       font-weight: 700;
       padding: 0.7rem 1.75rem;
-      border-radius: 10px;
+      border-radius: 4px;
       border: none;
       cursor: pointer;
       transition: transform 0.15s, box-shadow 0.15s;
@@ -275,11 +298,11 @@
       align-items: center;
       gap: 0.5rem;
       font-size: 0.875rem;
-      box-shadow: 0 3px 16px rgba(176,139,46,0.35);
+      box-shadow: 0 4px 31px rgba(176,139,46,0.3);
     }
     .brand-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 24px rgba(176,139,46,0.45);
+      box-shadow: 0 6px 31px rgba(176,139,46,0.45);
     }
     .brand-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
@@ -288,7 +311,7 @@
       color: #6b7280;
       font-weight: 500;
       padding: 0.7rem 1.25rem;
-      border-radius: 10px;
+      border-radius: 4px;
       border: 1px solid var(--border);
       cursor: pointer;
       transition: border-color 0.2s, color 0.2s;
@@ -300,7 +323,7 @@
     .form-input {
       width: 100%;
       border: 1px solid #d1d5db;
-      border-radius: 8px;
+      border-radius: 4px;
       padding: 0.55rem 0.75rem;
       font-size: 0.875rem;
       outline: none;
@@ -389,20 +412,25 @@
       .trust-item { justify-content: center; }
       .benefits-inner { grid-template-columns: 1fr; }
       .benefits { padding: 3rem 1.25rem; }
-      .nav { padding: 0.875rem 1.25rem; }
+      .nav-wrapper { padding: 0 1rem; }
+      .nav { padding: 0.75rem 1.25rem; }
       .nav-tagline { display: none; }
+      .nav-cta { font-size: 0.72rem; padding: 0.45rem 0.9rem; }
     }
   </style>
 </head>
 <body>
 
 <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
-<nav class="nav">
-  <a href="https://clinicmastery.com">
-    <img class="nav-logo" src="https://framerusercontent.com/images/b5LyaK7vMPssbQvw6gpzlEJcAg.png" alt="Clinic Mastery" style="height:36px;" />
-  </a>
-  <span class="nav-tagline">Building Clinics for Good™</span>
-</nav>
+<div class="nav-wrapper">
+  <nav class="nav">
+    <a href="https://clinicmastery.com">
+      <img src="https://framerusercontent.com/images/b5LyaK7vMPssbQvw6gpzlEJcAg.png" alt="Clinic Mastery" style="height:34px; display:block;" />
+    </a>
+    <span class="nav-tagline">Building Clinics for Good™</span>
+    <a href="#form" class="nav-cta">Get My Free Brief</a>
+  </nav>
+</div>
 
 <!-- ── Hero ─────────────────────────────────────────────────────────────── -->
 <section style="background: linear-gradient(180deg, #fefefe 0%, #f5f5f7 100%);">
@@ -465,7 +493,7 @@
   </div>
 
   <div style="max-width:680px; margin:0 auto;">
-    <div style="background:#fff; border-radius:1.25rem; border:1px solid var(--border); box-shadow:0 4px 24px rgba(0,0,0,0.07); padding:2.25rem;">
+    <div style="background:#fff; border-radius:16px; border:1px solid var(--border); box-shadow:0 10px 30px rgba(62,15,21,0.08); padding:2.25rem;">
 
       <!-- Progress bar -->
       <div style="margin-bottom:2rem;">
@@ -752,31 +780,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/intlTelInput.min.js"></script>
 <script>
-// ── GHL Config ─────────────────────────────────────────────────────────────
-const GHL_API_KEY   = 'pit-454801c2-5eaa-43b8-b08b-83f22eb242be';
-const GHL_LOCATION  = 'EP54V2UEoSXiHpGoeEN0';
-const GHL_API_BASE  = 'https://services.leadconnectorhq.com';
-const BACKEND_URL   = 'https://clinic-intake.onrender.com';
-
-const FIELDS = {
-  clinic_name:               'gHOtpepphypyMPnETCR4',
-  primary_specialty:         'bE5yGxfhELzuFWtGwi04',
-  suburb:                    'Gfbiwcw5VKBJ1v1bJAJR',
-  clinic_state:              '2Oa5PGan85jDYA00j5zw',
-  num_practitioners:         'ptKr84ZW5ePZUx7lViiC',
-  website_url:               '98STHsJdohiG11O2ogHu',
-  avg_appointment_fee:       'UJVdS5Z5oV1LocqMEGec',
-  avg_visits_per_patient:    'RHLurZk6z1FaELaX7UH0',
-  new_patients_per_month:    'WDd3NTUfbslPNiA8nEc2',
-  monthly_ad_spend:          'Diynbh2NPKd9ycYyZOzZ',
-  appointment_types_to_grow: 'Okl0OLwYGZXNTlYxCJw7',
-  main_goal:                 'ixBfEDUJ1NDXqqr2RjJe',
-  additional_context:        'zZdnOqWJvQdkMzuSEUvE',
-  has_google_ads:            '9PgjI0dqYtT42Iw9t5mW',
-  invite_sent:               'C1VKccCoU0nqKPqsnPvZ',
-  intake_date:               'lGBPxCpUasxqyQaTRT84',
-  google_ads_data_status:    'rodYdkRsTEUr89ugmlhz',
-};
+// ── Config ──────────────────────────────────────────────────────────────────
+const BACKEND_URL = 'https://clinic-intake.onrender.com';
 
 const LABELS = ['','About your clinic','Patient & revenue','Goals & context','Google Ads access'];
 let cur = 1;
@@ -883,52 +888,6 @@ function copyEmail() {
   });
 }
 
-// ── Build GHL payload ─────────────────────────────────────────────────────────
-function buildPayload(inviteSentOverride) {
-  const hasAds     = v('has_google_ads');
-  const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
-  const isYes      = hasAds.startsWith('Yes');
-  const confirmed  = inviteSent === "Yes, I've sent the invitation";
-
-  let adsTag = 'ads-not-applicable';
-  if(isYes && confirmed) adsTag = 'ads-invite-confirmed';
-  else if(isYes)         adsTag = 'ads-invite-pending';
-
-  const specialty = v('primary_specialty');
-
-  return {
-    locationId: GHL_LOCATION,
-    name:       v('clinic_name'),
-    email:      v('email'),
-    phone:      iti ? iti.getNumber() : '',
-    source:     'Intake Form',
-    tags: [
-      'intake-submitted',
-      'specialty-' + specialty.toLowerCase().replace(/\s+/g,'-'),
-      adsTag,
-    ],
-    customFields: [
-      { id: FIELDS.clinic_name,               value: v('clinic_name') },
-      { id: FIELDS.primary_specialty,         value: specialty },
-      { id: FIELDS.suburb,                    value: v('suburb') },
-      { id: FIELDS.clinic_state,              value: v('state') },
-      { id: FIELDS.num_practitioners,         value: v('num_practitioners') },
-      { id: FIELDS.website_url,               value: v('website_url') },
-      { id: FIELDS.avg_appointment_fee,       value: v('avg_appointment_fee') },
-      { id: FIELDS.avg_visits_per_patient,    value: v('avg_visits_per_patient') },
-      { id: FIELDS.new_patients_per_month,    value: v('new_patients_per_month') },
-      { id: FIELDS.monthly_ad_spend,          value: v('monthly_ad_spend') },
-      { id: FIELDS.appointment_types_to_grow, value: v('appointment_types_to_grow') },
-      { id: FIELDS.main_goal,                 value: v('main_goal') },
-      { id: FIELDS.additional_context,        value: v('additional_context') || '' },
-      { id: FIELDS.has_google_ads,            value: hasAds || 'No' },
-      { id: FIELDS.invite_sent,               value: inviteSent },
-      { id: FIELDS.intake_date,               value: new Date().toISOString() },
-      { id: FIELDS.google_ads_data_status,    value: confirmed ? 'Pending' : 'Not requested' },
-    ],
-  };
-}
-
 // ── Submit ────────────────────────────────────────────────────────────────────
 async function doSubmit(inviteSentOverride) {
   const btn       = document.getElementById('submit-btn');
@@ -938,60 +897,16 @@ async function doSubmit(inviteSentOverride) {
   btn.disabled = true;
   btn.innerHTML = '<div class="spin"></div> Generating…';
 
+  const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
+
   try {
-    const payload    = buildPayload(inviteSentOverride);
-    const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
-    const phoneNum   = iti ? iti.getNumber() : '';
-
-    // 1. Phone-first: search for existing contact by phone, fall back to email upsert
-    let ghlRes;
-    if (phoneNum) {
-      const searchRes = await fetch(
-        `${GHL_API_BASE}/contacts/search?locationId=${GHL_LOCATION}&phone=${encodeURIComponent(phoneNum)}`,
-        { headers: { Authorization: `Bearer ${GHL_API_KEY}`, Version: '2021-07-28' } }
-      );
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        const existing = (searchData.contacts || [])[0];
-        if (existing) {
-          ghlRes = await fetch(`${GHL_API_BASE}/contacts/${existing.id}`, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${GHL_API_KEY}`,
-              Version: '2021-07-28',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-          });
-        }
-      }
-    }
-
-    if (!ghlRes) {
-      ghlRes = await fetch(`${GHL_API_BASE}/contacts/upsert`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${GHL_API_KEY}`,
-          Version: '2021-07-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-    }
-
-    if(!ghlRes.ok) {
-      const err = await ghlRes.json().catch(()=>({}));
-      throw new Error(err.message || `Error ${ghlRes.status}`);
-    }
-
-    // 2. Notify backend — fire-and-forget
-    fetch(`${BACKEND_URL}/submit`, {
+    const resp = await fetch(`${BACKEND_URL}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         clinic_name:               v('clinic_name'),
         email:                     v('email'),
-        phone:                     phoneNum || null,
+        phone:                     iti ? iti.getNumber() : null,
         primary_specialty:         v('primary_specialty'),
         suburb:                    v('suburb'),
         state:                     v('state'),
@@ -1007,7 +922,12 @@ async function doSubmit(inviteSentOverride) {
         has_google_ads:            v('has_google_ads') || null,
         invite_sent:               inviteSent,
       }),
-    }).catch(()=>{});
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || `Error ${resp.status}`);
+    }
 
     // Success
     document.querySelector('[style*="margin-bottom:2rem"]').style.display = 'none';

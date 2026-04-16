@@ -434,32 +434,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/intlTelInput.min.js"></script>
 <script>
-// ── GHL Config ─────────────────────────────────────────────────────────────
-const GHL_API_KEY   = 'pit-454801c2-5eaa-43b8-b08b-83f22eb242be';
-const GHL_LOCATION  = 'EP54V2UEoSXiHpGoeEN0';
-const GHL_API_BASE  = 'https://services.leadconnectorhq.com';
-const BACKEND_URL   = 'https://clinic-intake.onrender.com';
-
-// Custom field IDs (created by setup script — do not change)
-const FIELDS = {
-  clinic_name:               'gHOtpepphypyMPnETCR4',
-  primary_specialty:         'bE5yGxfhELzuFWtGwi04',
-  suburb:                    'Gfbiwcw5VKBJ1v1bJAJR',
-  clinic_state:              '2Oa5PGan85jDYA00j5zw',
-  num_practitioners:         'ptKr84ZW5ePZUx7lViiC',
-  website_url:               '98STHsJdohiG11O2ogHu',
-  avg_appointment_fee:       'UJVdS5Z5oV1LocqMEGec',
-  avg_visits_per_patient:    'RHLurZk6z1FaELaX7UH0',
-  new_patients_per_month:    'WDd3NTUfbslPNiA8nEc2',
-  monthly_ad_spend:          'Diynbh2NPKd9ycYyZOzZ',
-  appointment_types_to_grow: 'Okl0OLwYGZXNTlYxCJw7',
-  main_goal:                 'ixBfEDUJ1NDXqqr2RjJe',
-  additional_context:        'zZdnOqWJvQdkMzuSEUvE',
-  has_google_ads:            '9PgjI0dqYtT42Iw9t5mW',
-  invite_sent:               'C1VKccCoU0nqKPqsnPvZ',
-  intake_date:               'lGBPxCpUasxqyQaTRT84',
-  google_ads_data_status:    'rodYdkRsTEUr89ugmlhz',
-};
+// ── Config ──────────────────────────────────────────────────────────────────
+const BACKEND_URL = 'https://clinic-intake.onrender.com';
 
 const LABELS = ['','About your clinic','Patient & revenue','Goals & context','Google Ads access'];
 let cur = 1;
@@ -566,53 +542,6 @@ function copyEmail() {
   });
 }
 
-// ── Build GHL contact payload ─────────────────────────────────────────────────
-function buildPayload(inviteSentOverride) {
-  const hasAds     = v('has_google_ads');
-  const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
-  const isYes      = hasAds.startsWith('Yes');
-  const confirmed  = inviteSent === "Yes, I've sent the invitation";
-
-  // Determine tags
-  let adsTag = 'ads-not-applicable';
-  if(isYes && confirmed) adsTag = 'ads-invite-confirmed';
-  else if(isYes)         adsTag = 'ads-invite-pending';
-
-  const specialty = v('primary_specialty');
-
-  return {
-    locationId: GHL_LOCATION,
-    name:       v('clinic_name'),
-    email:      v('email'),
-    phone:      iti ? iti.getNumber() : '',
-    source:     'Intake Form',
-    tags: [
-      'intake-submitted',
-      'specialty-' + specialty.toLowerCase().replace(/\s+/g,'-'),
-      adsTag,
-    ],
-    customFields: [
-      { id: FIELDS.clinic_name,               value: v('clinic_name') },
-      { id: FIELDS.primary_specialty,         value: specialty },
-      { id: FIELDS.suburb,                    value: v('suburb') },
-      { id: FIELDS.clinic_state,              value: v('state') },
-      { id: FIELDS.num_practitioners,         value: v('num_practitioners') },
-      { id: FIELDS.website_url,               value: v('website_url') },
-      { id: FIELDS.avg_appointment_fee,       value: v('avg_appointment_fee') },
-      { id: FIELDS.avg_visits_per_patient,    value: v('avg_visits_per_patient') },
-      { id: FIELDS.new_patients_per_month,    value: v('new_patients_per_month') },
-      { id: FIELDS.monthly_ad_spend,          value: v('monthly_ad_spend') },
-      { id: FIELDS.appointment_types_to_grow, value: v('appointment_types_to_grow') },
-      { id: FIELDS.main_goal,                 value: v('main_goal') },
-      { id: FIELDS.additional_context,        value: v('additional_context') || '' },
-      { id: FIELDS.has_google_ads,            value: hasAds || 'No' },
-      { id: FIELDS.invite_sent,               value: inviteSent },
-      { id: FIELDS.intake_date,               value: new Date().toISOString() },
-      { id: FIELDS.google_ads_data_status,    value: confirmed ? 'Pending' : 'Not requested' },
-    ],
-  };
-}
-
 // ── Submit ────────────────────────────────────────────────────────────────────
 async function doSubmit(inviteSentOverride) {
   const btn       = document.getElementById('submit-btn');
@@ -622,57 +551,10 @@ async function doSubmit(inviteSentOverride) {
   btn.disabled = true;
   btn.innerHTML = '<div class="spin"></div> Generating…';
 
+  const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
+
   try {
-    const payload    = buildPayload(inviteSentOverride);
-    const inviteSent = inviteSentOverride || v('invite_sent') || 'Not sent';
-
-    // 1. Phone-first: search for existing contact by phone, fall back to email upsert
-    const phoneNum = iti ? iti.getNumber() : '';
-    let ghlRes;
-
-    if (phoneNum) {
-      const searchRes = await fetch(
-        `${GHL_API_BASE}/contacts/search?locationId=${GHL_LOCATION}&phone=${encodeURIComponent(phoneNum)}`,
-        { headers: { Authorization: `Bearer ${GHL_API_KEY}`, Version: '2021-07-28' } }
-      );
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        const existing = (searchData.contacts || [])[0];
-        if (existing) {
-          // Found by phone — update that contact directly
-          ghlRes = await fetch(`${GHL_API_BASE}/contacts/${existing.id}`, {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${GHL_API_KEY}`,
-              Version: '2021-07-28',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-          });
-        }
-      }
-    }
-
-    if (!ghlRes) {
-      // Fall back to email upsert
-      ghlRes = await fetch(`${GHL_API_BASE}/contacts/upsert`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${GHL_API_KEY}`,
-          Version: '2021-07-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-    }
-
-    if(!ghlRes.ok) {
-      const err = await ghlRes.json().catch(()=>({}));
-      throw new Error(err.message || `Error ${ghlRes.status}`);
-    }
-
-    // 2. Notify backend — fire-and-forget so the user isn't blocked by any backend delay
-    fetch(`${BACKEND_URL}/submit`, {
+    const resp = await fetch(`${BACKEND_URL}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -694,7 +576,12 @@ async function doSubmit(inviteSentOverride) {
         has_google_ads:            v('has_google_ads') || null,
         invite_sent:               inviteSent,
       }),
-    }).catch(()=>{}); // never block the user on backend errors
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || `Error ${resp.status}`);
+    }
 
     // Success — hide progress bar, show thank you
     document.querySelector('[style*="margin-bottom:2rem"]').style.display = 'none';

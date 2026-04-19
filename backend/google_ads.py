@@ -351,6 +351,103 @@ def pull_account_data(customer_id: str) -> dict:
     }
 
 
+# ── Immediate report trigger ──────────────────────────────────────────────────
+
+async def run_ads_report_now(
+    clinic_name: str,
+    ghl_contact_id: str,
+    avg_appointment_fee: float = 0.0,
+    avg_visits_per_patient: float = 0.0,
+) -> dict:
+    """
+    Immediately attempts to find the clinic's Google Ads account and generate
+    the report — no polling loop, no waiting.
+
+    Returns {"status": "success", "customer_id": ...} or {"status": "error", "detail": ...}.
+    Called by the /trigger-ads-report admin endpoint.
+    """
+    from ghl import update_contact_field, add_tag_to_contact
+
+    logger.info(f"Force-triggering Google Ads report for {clinic_name} ({ghl_contact_id})")
+
+    try:
+        client = _build_google_ads_client()
+        customer_ids = _get_accessible_customer_ids(client)
+        logger.info(f"[Force] Found {len(customer_ids)} accessible accounts")
+
+        import re as _re
+        def _words(s):
+            return set(_re.sub(r'[^a-z0-9\s]', '', s.lower()).split())
+
+        stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
+        clinic_words = _words(clinic_name) - stop
+
+        matched_id = None
+        account_names = {}
+        for cid in customer_ids:
+            account_name = _get_account_name(client, cid)
+            account_names[cid] = account_name
+            logger.info(f"  [Force] Account: {cid} -> '{account_name}'")
+            account_words = _words(account_name) - stop
+            if clinic_words & account_words:
+                matched_id = cid
+                logger.info(f"[Force] Matched '{clinic_name}' to account '{account_name}' ({cid})")
+                break
+
+        if not matched_id:
+            return {
+                "status": "not_found",
+                "detail": f"No Google Ads account found matching '{clinic_name}'",
+                "accounts_checked": list(account_names.values()),
+            }
+
+        # Pull full account data
+        summary = pull_account_data(matched_id)
+
+        # Write snapshot to GHL
+        wasted_total = sum(k.get("spend", 0) for k in summary.get("wasted_keywords", []))
+        snapshot = (
+            f"Total spend (90d): ${summary.get('total_spend_90d', 0):,.2f}\n"
+            f"Conversions: {summary.get('total_conversions_90d', 0)} | "
+            f"Cost per conversion: ${summary.get('cost_per_conversion', 0):,.2f}\n"
+            f"Active campaigns: {summary.get('num_active_campaigns', 0)}\n"
+            f"Wasted spend identified: ${wasted_total:,.2f} "
+            f"({len(summary.get('wasted_keywords', []))} keywords)\n"
+            f"Avg quality score: {summary.get('avg_quality_score', 0)}/10\n"
+            f"Status: Full report emailed to pete@clinicmastery.com"
+        )
+        await update_contact_field(ghl_contact_id, "google_ads_summary", snapshot)
+        await update_contact_field(ghl_contact_id, "google_ads_data_status", "Complete")
+
+        # Generate PDF and email
+        summary["avg_appointment_fee"] = avg_appointment_fee
+        summary["avg_visits_per_patient"] = avg_visits_per_patient
+        from pdf_report import generate_pdf
+        from emailer import send_ads_report
+        pdf_bytes = generate_pdf(summary, clinic_name)
+        sent = send_ads_report(clinic_name, pdf_bytes, summary)
+
+        # Mark polling state complete if entry exists
+        state = _load_state()
+        if ghl_contact_id in state:
+            state[ghl_contact_id]["status"] = "complete"
+            state[ghl_contact_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _save_state(state)
+
+        logger.info(f"[Force] Report complete for {clinic_name}. Email sent: {sent}")
+        return {
+            "status": "success",
+            "customer_id": matched_id,
+            "email_sent": sent,
+            "total_spend_90d": summary.get("total_spend_90d"),
+            "total_conversions_90d": summary.get("total_conversions_90d"),
+        }
+
+    except Exception as exc:
+        logger.error(f"[Force] Failed for {clinic_name}: {exc}", exc_info=True)
+        return {"status": "error", "detail": str(exc)}
+
+
 # ── Polling background task ───────────────────────────────────────────────────
 
 async def poll_for_access(

@@ -15,11 +15,12 @@ import os
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from emailer import send_submission_notification
 from ghl import create_or_update_contact, setup_custom_fields
-from google_ads import add_to_polling_state, get_resumable_polls, poll_for_access
+from google_ads import add_to_polling_state, get_resumable_polls, poll_for_access, run_ads_report_now
 from models import IntakeSubmission
 
 load_dotenv()
@@ -181,3 +182,44 @@ async def submit_intake(
         "message": "Brief being generated",
         "contact_id": ghl_contact_id,
     }
+
+
+# ── Admin: force-trigger Google Ads report ────────────────────────────────────
+
+ADMIN_KEY = os.getenv("ADMIN_API_KEY", "")
+
+
+class TriggerAdsRequest(BaseModel):
+    contact_id: str
+    clinic_name: str
+    avg_appointment_fee: float = 0.0
+    avg_visits_per_patient: float = 0.0
+    admin_key: str
+
+
+@app.post("/trigger-ads-report")
+async def trigger_ads_report(req: TriggerAdsRequest):
+    """
+    Admin endpoint: immediately runs the Google Ads report for a given contact
+    without waiting for the polling loop.
+
+    Requires the ADMIN_API_KEY env var to be set and passed in the request body.
+    """
+    if ADMIN_KEY and req.admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    logger.info(
+        f"Manual ads trigger requested for {req.clinic_name} / {req.contact_id}"
+    )
+
+    result = await run_ads_report_now(
+        req.clinic_name,
+        req.contact_id,
+        req.avg_appointment_fee,
+        req.avg_visits_per_patient,
+    )
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("detail"))
+
+    return result

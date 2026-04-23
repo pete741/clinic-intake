@@ -11,6 +11,7 @@ API version: 2021-07-28
 Base URL: https://services.leadconnectorhq.com
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -68,6 +69,36 @@ def _headers() -> dict:
         "Version": "2021-07-28",
         "Content-Type": "application/json",
     }
+
+
+# ── Retry helper ──────────────────────────────────────────────────────────────
+
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    max_attempts: int = 3,
+    **kwargs,
+) -> httpx.Response:
+    """
+    Wraps an httpx request with exponential backoff retry.
+    Retries on 429 (rate limit) and 5xx (server errors).
+    Raises on final failure.
+    """
+    for attempt in range(1, max_attempts + 1):
+        resp = await client.request(method, url, **kwargs)
+        if resp.status_code in (429, 500, 502, 503, 504):
+            if attempt == max_attempts:
+                return resp
+            wait = 2 ** attempt  # 2s, 4s, 8s
+            logger.warning(
+                f"GHL API {method} {url} returned {resp.status_code} "
+                f"— retrying in {wait}s (attempt {attempt}/{max_attempts})"
+            )
+            await asyncio.sleep(wait)
+        else:
+            return resp
+    return resp
 
 
 # ── Custom field setup ────────────────────────────────────────────────────────
@@ -244,7 +275,8 @@ async def create_or_update_contact(
             contact_id = await _find_contact_by_phone(client, submission.phone)
             if contact_id:
                 logger.info(f"Found existing contact {contact_id} by phone — updating")
-                resp = await client.put(
+                resp = await _request_with_retry(
+                    client, "PUT",
                     f"{BASE_URL}/contacts/{contact_id}",
                     headers=_headers(),
                     json=contact_payload,
@@ -258,7 +290,8 @@ async def create_or_update_contact(
                 return contact_id
 
         # 2. Fall back to email upsert (creates if new, updates if email matches)
-        resp = await client.post(
+        resp = await _request_with_retry(
+            client, "POST",
             f"{BASE_URL}/contacts/upsert",
             headers=_headers(),
             json=contact_payload,
@@ -328,7 +361,8 @@ async def update_contact_field(contact_id: str, field_name: str, value: str) -> 
         return False
 
     async with httpx.AsyncClient() as client:
-        resp = await client.put(
+        resp = await _request_with_retry(
+            client, "PUT",
             f"{BASE_URL}/contacts/{contact_id}",
             headers=_headers(),
             json={"customFields": [{"id": field_id, "value": value}]},
@@ -350,7 +384,8 @@ async def add_tag_to_contact(contact_id: str, tag: str) -> bool:
     Returns True on success, False on failure.
     """
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
+        resp = await _request_with_retry(
+            client, "POST",
             f"{BASE_URL}/contacts/{contact_id}/tags",
             headers=_headers(),
             json={"tags": [tag]},
@@ -363,3 +398,83 @@ async def add_tag_to_contact(contact_id: str, tag: str) -> bool:
             return False
         logger.info(f"Added tag '{tag}' to contact {contact_id}")
         return True
+
+
+async def get_pending_polls() -> list[dict]:
+    """
+    Queries GHL for all contacts tagged 'ads-invite-confirmed' where
+    google_ads_data_status is 'Pending'. Used on startup to resume any
+    polling tasks that were lost in a deploy or crash.
+
+    Returns a list of dicts compatible with poll_for_access() arguments.
+    """
+    status_field_id  = _field_id_map.get("google_ads_data_status", "")
+    fee_field_id     = _field_id_map.get("avg_appointment_fee", "")
+    visits_field_id  = _field_id_map.get("avg_visits_per_patient", "")
+    name_field_id    = _field_id_map.get("clinic_name", "")
+    intake_field_id  = _field_id_map.get("intake_date", "")
+
+    if not status_field_id:
+        logger.warning("get_pending_polls: field ID map not loaded yet — skipping")
+        return []
+
+    async with httpx.AsyncClient() as client:
+        resp = await _request_with_retry(
+            client, "POST",
+            f"{BASE_URL}/contacts/search",
+            headers=_headers(),
+            json={
+                "locationId": GHL_LOCATION_ID,
+                "filters": [
+                    {
+                        "field": "tags",
+                        "operator": "contains_set",
+                        "value": ["ads-invite-confirmed"],
+                    }
+                ],
+                "pageLimit": 100,
+            },
+        )
+
+    if resp.status_code != 200:
+        logger.error(f"get_pending_polls GHL search failed: {resp.status_code} — {resp.text}")
+        return []
+
+    contacts = resp.json().get("contacts", [])
+    now = datetime.now(timezone.utc)
+    pending = []
+
+    for contact in contacts:
+        custom = {f["id"]: f.get("value") for f in contact.get("customFields", [])}
+        status = custom.get(status_field_id, "")
+        if status != "Pending":
+            continue
+
+        # Check the clinic is still within the 72-hour polling window
+        intake_raw = custom.get(intake_field_id, "")
+        try:
+            started = datetime.fromisoformat(intake_raw)
+            elapsed = (now - started).total_seconds()
+            if elapsed >= 72 * 3600:
+                logger.info(
+                    f"Skipping {contact.get('id')} — past 72-hour polling window "
+                    f"({elapsed / 3600:.1f}h elapsed)"
+                )
+                continue
+        except (ValueError, TypeError):
+            pass  # No intake_date — include anyway, polling will self-limit
+
+        clinic_name  = custom.get(name_field_id) or contact.get("companyName") or contact.get("contactName", "Unknown")
+        avg_fee      = float(custom.get(fee_field_id) or 0)
+        avg_visits   = float(custom.get(visits_field_id) or 0)
+
+        pending.append({
+            "clinic_name":          clinic_name,
+            "ghl_contact_id":       contact["id"],
+            "avg_appointment_fee":  avg_fee,
+            "avg_visits_per_patient": avg_visits,
+        })
+        logger.info(f"Resuming poll for {clinic_name} ({contact['id']})")
+
+    logger.info(f"get_pending_polls: found {len(pending)} contacts needing poll resumption")
+    return pending

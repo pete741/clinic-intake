@@ -63,8 +63,8 @@ async def on_startup():
     logger.info("Server starting — running GHL custom field setup...")
     await setup_custom_fields()
 
-    # Resume polls killed by a deploy restart
-    pending = get_resumable_polls()
+    # Resume polls killed by a deploy restart — GHL is the source of truth
+    pending = await get_resumable_polls()
     if pending:
         logger.info(f"Resuming {len(pending)} pending poll(s) after restart")
         for entry in pending:

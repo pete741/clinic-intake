@@ -88,29 +88,14 @@ def add_to_polling_state(
     logger.info(f"Added {clinic_name} ({ghl_contact_id}) to polling state")
 
 
-def get_resumable_polls() -> list[dict]:
+async def get_resumable_polls() -> list[dict]:
     """
-    Returns all polling entries that are still pending and within the 72-hour window.
-    Called on server startup to resume any polls killed by a deploy.
+    Returns all contacts that still need polling, sourced directly from GHL.
+    GHL is the source of truth — this survives deploys, crashes, and disk resets.
+    Called on server startup.
     """
-    state = _load_state()
-    now = datetime.now(timezone.utc)
-    resumable = []
-    for entry in state.values():
-        if entry.get("status") != "pending" or entry.get("cancel"):
-            continue
-        try:
-            started = datetime.fromisoformat(entry["started_at"])
-            elapsed = (now - started).total_seconds()
-        except (KeyError, ValueError):
-            continue
-        if elapsed < MAX_POLL_DURATION_SECONDS:
-            resumable.append(entry)
-            logger.info(
-                f"Will resume polling for {entry['clinic_name']} "
-                f"({elapsed / 3600:.1f}h elapsed)"
-            )
-    return resumable
+    from ghl import get_pending_polls
+    return await get_pending_polls()
 
 
 def cancel_polling(ghl_contact_id: str) -> None:

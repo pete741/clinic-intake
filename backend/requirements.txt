@@ -6,3 +6,4 @@ pydantic[email]==2.7.1
 google-ads==30.0.0
 reportlab==4.2.2
 resend==2.10.0
+sentry-sdk[fastapi]==2.58.0

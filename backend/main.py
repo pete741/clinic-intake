@@ -13,6 +13,9 @@ import asyncio
 import logging
 import os
 
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -24,6 +27,14 @@ from google_ads import add_to_polling_state, get_resumable_polls, poll_for_acces
 from models import IntakeSubmission
 
 load_dotenv()
+
+# ── Sentry ────────────────────────────────────────────────────────────────────
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN", ""),
+    integrations=[FastApiIntegration(), AsyncioIntegration()],
+    traces_sample_rate=0.2,   # 20% of requests traced — enough for debugging
+    send_default_pii=False,
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(

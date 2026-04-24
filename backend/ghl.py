@@ -241,6 +241,7 @@ async def create_or_update_contact(
     """
     tags = [
         "intake-submitted",
+        "G Ads Intake Form Completed",
         f"specialty-{submission.primary_specialty.lower().replace(' ', '-')}",
         ads_invite_tag,
     ]

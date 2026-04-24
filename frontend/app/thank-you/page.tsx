@@ -42,13 +42,48 @@ export default function ThankYouPage() {
           </ul>
         </div>
 
+        {/* Booking CTA */}
+        <div className="rounded-xl bg-slate-900 px-6 py-6 text-left mb-6">
+          <p className="text-white font-bold text-base mb-1">
+            Want Pete to walk you through it personally?
+          </p>
+          <p className="text-slate-300 text-sm mb-4">
+            Once your report is ready, book a free 15-minute call and Pete will show you exactly:
+          </p>
+          <ul className="space-y-2 text-sm text-slate-200 mb-5">
+            <li className="flex items-start gap-2">
+              <span className="text-red-400 font-bold mt-0.5">→</span>
+              <span>Where your Google Ads budget is being wasted — down to the dollar</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-red-400 font-bold mt-0.5">→</span>
+              <span>The specific fixes that will lower your cost-per-lead immediately</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-red-400 font-bold mt-0.5">→</span>
+              <span>A realistic projection of what better-managed spend means for your revenue</span>
+            </li>
+          </ul>
+          <a
+            href="https://bookings.clinicmastery.com/pete-flynn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full text-center bg-red-600 hover:bg-red-700 text-white font-semibold text-sm py-3 px-4 rounded-lg transition-colors"
+          >
+            Book a Free Report Walk-Through
+          </a>
+          <p className="text-slate-400 text-xs text-center mt-3">
+            15 minutes. No obligation. Just clarity on what&apos;s costing you.
+          </p>
+        </div>
+
         <p className="text-xs text-gray-400">
           Questions? Email{" "}
           <a
-            href="mailto:pete@clinicmastery.com.au"
+            href="mailto:pete@clinicmastery.com"
             className="underline hover:text-gray-600"
           >
-            pete@clinicmastery.com.au
+            pete@clinicmastery.com
           </a>
         </p>
       </div>

@@ -67,6 +67,8 @@ def send_submission_notification(submission: dict) -> bool:
     subject = f"New Intake Submission - {clinic_name}"
 
     rows = [
+        ("Email",             submission.get("email", "-")),
+        ("Phone",             submission.get("phone") or "-"),
         ("Specialty",         submission.get("primary_specialty", "-")),
         ("Location",          f"{submission.get('suburb', '-')}, {submission.get('state', '-')}"),
         ("Practitioners",     submission.get("num_practitioners", "-")),

@@ -112,11 +112,18 @@ def cancel_polling(ghl_contact_id: str) -> None:
 
 # ── Google Ads client factory ─────────────────────────────────────────────────
 
+_google_ads_client = None
+
+
 def _build_google_ads_client():
     """
-    Builds and returns a GoogleAdsClient configured from environment variables.
-    Raises if required credentials are missing.
+    Returns a cached GoogleAdsClient. Built once per process to avoid
+    reloading heavy gRPC/protobuf stubs on every poll cycle.
     """
+    global _google_ads_client
+    if _google_ads_client is not None:
+        return _google_ads_client
+
     try:
         from google.ads.googleads.client import GoogleAdsClient  # type: ignore
     except ImportError:
@@ -136,7 +143,8 @@ def _build_google_ads_client():
     if login_customer_id:
         config["login_customer_id"] = login_customer_id
 
-    return GoogleAdsClient.load_from_dict(config)
+    _google_ads_client = GoogleAdsClient.load_from_dict(config)
+    return _google_ads_client
 
 
 # ── Account discovery ─────────────────────────────────────────────────────────

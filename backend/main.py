@@ -336,3 +336,18 @@ async def trigger_ads_report(req: TriggerAdsRequest):
         raise HTTPException(status_code=500, detail=result.get("detail"))
 
     return result
+
+
+class ResendNotificationRequest(BaseModel):
+    submission: dict
+    admin_key: str
+
+
+@app.post("/resend-notification")
+async def resend_notification(req: ResendNotificationRequest, background_tasks: BackgroundTasks):
+    """Admin endpoint: re-sends the submission notification email for a given submission dict."""
+    if ADMIN_KEY and req.admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    background_tasks.add_task(send_submission_notification, req.submission)
+    return {"status": "ok", "message": "Notification queued"}

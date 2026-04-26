@@ -56,5 +56,5 @@ class IntakeSubmission(BaseModel):
         return self.has_google_ads is not None and self.has_google_ads.startswith("Yes")
 
     def invite_confirmed(self) -> bool:
-        """Returns True if the clinic confirmed they sent the invite."""
-        return self.invite_sent == "Yes, I've sent the invitation"
+        """Returns True if the clinic confirmed or intends to send the invite."""
+        return self.invite_sent in ("Yes, I've sent the invitation", "I'll do this after submitting")

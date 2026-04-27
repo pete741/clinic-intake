@@ -21,3 +21,40 @@ services:
         value: ""
       - key: FRONTEND_URL
         value: https://app.gohighlevel.com
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: GOOGLE_ADS_TOKEN_REFRESHED_AT
+        sync: false
+
+  - type: cron
+    name: clinic-intake-poll-worker
+    runtime: python
+    schedule: "*/15 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python poll_worker.py
+    rootDir: backend
+    envVars:
+      - key: GHL_API_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+      - key: GOOGLE_ADS_DEVELOPER_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_ADS_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_ADS_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        value: ""
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: GOOGLE_ADS_TOKEN_REFRESHED_AT
+        sync: false

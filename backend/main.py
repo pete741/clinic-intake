@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 
 from emailer import send_submission_notification
 from ghl import create_or_update_contact, setup_custom_fields
-from google_ads import add_to_polling_state, get_resumable_polls, poll_for_access, run_ads_report_now
+from google_ads import run_ads_report_now
 from models import IntakeSubmission
 
 load_dotenv()
@@ -67,29 +67,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
-    """
-    Runs when the FastAPI server starts.
-    Ensures all required GHL custom fields exist before we accept any submissions.
-    Resumes any polling tasks that were running before a deploy restarted the server.
-    """
     logger.info("Server starting — running GHL custom field setup...")
     await setup_custom_fields()
-
-    # Check Google Ads token age — warn pete if expiry is close
     asyncio.create_task(_check_token_expiry())
-
-    # Resume polls killed by a deploy restart — GHL is the source of truth
-    pending = await get_resumable_polls()
-    if pending:
-        logger.info(f"Resuming {len(pending)} pending poll(s) after restart")
-        for entry in pending:
-            asyncio.create_task(poll_for_access(
-                entry["clinic_name"],
-                entry["ghl_contact_id"],
-                entry.get("avg_appointment_fee", 0.0),
-                entry.get("avg_visits_per_patient", 0.0),
-            ))
-
     logger.info("Startup complete.")
 
 
@@ -264,28 +244,11 @@ async def submit_intake(
     # Immediate notification to pete — fires before any PDF generation
     background_tasks.add_task(send_submission_notification, submission.model_dump())
 
-    # If the clinic confirmed sending the Google Ads invite, start polling
-    if submission.has_google_ads_yes() and submission.invite_confirmed():
-        logger.info(
-            f"Starting Google Ads access polling for {submission.clinic_name} "
-            f"(contact: {ghl_contact_id})"
-        )
-        # Register in polling state first (so it's trackable + resumable after deploy)
-        add_to_polling_state(
-            submission.clinic_name, ghl_contact_id,
-            submission.avg_appointment_fee, submission.avg_visits_per_patient,
-        )
+    # Google Ads polling is handled by the cron job (poll_worker.py) — nothing to start here.
+    # The contact is tagged ads-invite-confirmed and google_ads_data_status=Pending in GHL,
+    # which is all the cron job needs to pick it up within 15 minutes.
 
-        # Add the background polling task — runs async, doesn't block this response
-        background_tasks.add_task(
-            poll_for_access,
-            submission.clinic_name,
-            ghl_contact_id,
-            submission.avg_appointment_fee,
-            submission.avg_visits_per_patient,
-        )
-
-    elif ads_tag == "ads-not-applicable":
+    if ads_tag == "ads-not-applicable":
         # No Google Ads access — generate a standard intake brief and email it
         background_tasks.add_task(
             _send_intake_brief_task, submission.clinic_name, submission.model_dump()

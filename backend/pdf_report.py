@@ -346,7 +346,13 @@ def _section_visibility(story, styles, data: dict):
 
 def _section_wasted(story, styles, data: dict):
     _spacer(story, 10)
-    story.append(Paragraph("3. Wasted Spend - High Cost, Zero Conversions", styles["section"]))
+    conversions_invalid = data.get("conversions_invalid", False)
+    title = (
+        "3. Wasted Spend - Low Engagement Keywords (Conversions Excluded: Tracking Unreliable)"
+        if conversions_invalid else
+        "3. Wasted Spend - High Cost, Zero Conversions"
+    )
+    story.append(Paragraph(title, styles["section"]))
     _rule(story)
 
     keywords = data.get("wasted_keywords", [])
@@ -356,10 +362,19 @@ def _section_wasted(story, styles, data: dict):
         return
 
     total = sum(k.get("spend", 0) for k in keywords)
-    story.append(Paragraph(
-        f"<b>Total wasted spend: {_fmt_d(total)}</b> across {len(keywords)} "
-        f"keyword{'s' if len(keywords)!=1 else ''} with spend over $50 and zero conversions.",
-        styles["warn"]))
+    if conversions_invalid:
+        story.append(Paragraph(
+            f"<b>Conversion data has been excluded from this analysis</b> — the recorded cost per "
+            f"conversion is under $20, which is not achievable for real patient bookings. "
+            f"The account is almost certainly tracking a micro-event, not an actual enquiry. "
+            f"The {len(keywords)} keyword{'s' if len(keywords)!=1 else ''} below had spend over $20 "
+            f"with low click-through rates, indicating poor audience match.",
+            styles["warn"]))
+    else:
+        story.append(Paragraph(
+            f"<b>Total wasted spend: {_fmt_d(total)}</b> across {len(keywords)} "
+            f"keyword{'s' if len(keywords)!=1 else ''} with spend over $20 and zero conversions.",
+            styles["warn"]))
     _spacer(story, 2)
 
     rows = [["Keyword", "Match Type", "Spend", "Clicks", "Impressions", "Quality Score", "Action"]]
@@ -540,9 +555,9 @@ def _section_conversion(story, styles, data: dict):
     story.append(snap_tbl)
     _spacer(story, 4)
 
-    # Healthcare floor: cost per conversion under $50 almost certainly means
-    # micro-conversions (button clicks, page views) not actual patient bookings.
-    suspicious_cpc = 0 < cost_per_conv < 50
+    # Cost per conversion under $20 almost certainly means micro-conversions
+    # (button clicks, page views, phone reveals) not actual patient bookings.
+    suspicious_cpc = 0 < cost_per_conv < 20
 
     issues = data.get("conversion_issues", [])
     checks = [
@@ -748,7 +763,7 @@ def _section_priorities(story, styles, data: dict):
     qs           = data.get("avg_quality_score", 0)
     conv_issues      = data.get("total_conversions_90d", 1) == 0
     _cost_per_conv   = data.get("cost_per_conversion", 0)
-    micro_conversion = 0 < _cost_per_conv < 50
+    micro_conversion = 0 < _cost_per_conv < 20
     all_paused       = data.get("all_campaigns_paused", False)
     _brand_kws   = data.get("brand_keywords", [])
     _brand_spend = data.get("brand_spend") or sum(k.get("spend",0) for k in _brand_kws)

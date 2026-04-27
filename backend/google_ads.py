@@ -48,6 +48,14 @@ POLLING_STATE_FILE = Path(__file__).parent / "polling_state.json"
 POLL_INTERVAL_SECONDS = 15 * 60   # 15 minutes
 MAX_POLL_DURATION_SECONDS = 72 * 60 * 60  # 72 hours
 
+# If cost-per-conversion is below this, the account is tracking a micro-event
+# (button click, scroll, phone reveal) not a real patient booking.
+# In that case we ignore conversion counts when assessing wasted spend.
+CONVERSION_VALIDITY_THRESHOLD = 20.0
+
+# Minimum spend to flag a keyword or search term as wasted/irrelevant.
+WASTED_SPEND_THRESHOLD = 20.0
+
 
 # ── Polling state helpers ─────────────────────────────────────────────────────
 
@@ -145,6 +153,50 @@ def _build_google_ads_client():
 
     _google_ads_client = GoogleAdsClient.load_from_dict(config)
     return _google_ads_client
+
+
+# ── Irrelevant search term classifier ────────────────────────────────────────
+
+import re as _re
+
+_IRRELEVANT_PATTERNS = [
+    (r'\bjobs?\b|\bcareers?\b|\brecruit\b|\bhiring\b|\bsalary\b|\bwages?\b|\bhow to become\b|\bbecome a\b', "Job/career search — not a patient"),
+    (r'\bcourses?\b|\bdegree\b|\bstudy\b|\buniversity\b|\btafe\b|\btraining\b|\bapprentice|\bcertif', "Education/course search — not a patient"),
+    (r'\bfree\b|\bdiy\b|\byoutube\b|\btutorial\b|\bhow to\b|\bself.?help\b', "Free/DIY search — not a paying patient"),
+    (r'\bdog\b|\bcat\b|\bpet\b|\bvet(erinary)?\b|\banimal\b|\bhorse\b|\bbird\b', "Veterinary/animal — wrong audience"),
+    (r'\breal estate\b|\bproperty\b|\binsurance\b|\baccountant\b|\blawyer\b|\blegal\b|\bfinance\b', "Unrelated industry"),
+    (r'\bshop\b|\bstore\b|\bbuy\b|\bproduct\b|\bequipment\b|\bsupplies\b|\bwholesale\b', "Product purchase — not a patient"),
+    (r'\bvolunteer\b|\binternship\b|\bplacement\b|\bwork experience\b', "Placement/volunteering — not a patient"),
+    (r'\bwikipedia\b|\bnews\b|\bresearch paper\b|\bstatistic\b', "Research/information, not booking intent"),
+    (r'\bdefinition\b|\bwhat is\b|\bmeaning of\b|\bhistory of\b', "Informational query — no booking intent"),
+    (r'\btemplate\b|\bexample\b|\bsample\b|\bform\b', "Template/document search — not a patient"),
+]
+
+
+def _classify_irrelevant_terms(terms: list[dict]) -> list[dict]:
+    """
+    Flags search terms that have spend but are clearly not from potential patients.
+    Uses pattern matching + low-CTR heuristics.
+    """
+    flagged = []
+    for t in terms:
+        term = t.get("term", "").lower()
+        spend = t.get("spend", 0)
+        if spend < 5:
+            continue
+
+        for pattern, reason in _IRRELEVANT_PATTERNS:
+            if _re.search(pattern, term, _re.IGNORECASE):
+                flagged.append({**t, "reason": reason})
+                break
+        else:
+            # Low CTR with meaningful spend: shown to many people, almost all ignored it
+            ctr = t.get("ctr", 0)
+            impressions = t.get("impressions", 0)
+            if spend >= WASTED_SPEND_THRESHOLD and ctr < 0.5 and impressions > 100:
+                flagged.append({**t, "reason": f"Very low CTR ({ctr:.2f}%) — searchers are ignoring these ads"})
+
+    return sorted(flagged, key=lambda x: x.get("spend", 0), reverse=True)
 
 
 # ── Account discovery ─────────────────────────────────────────────────────────
@@ -304,11 +356,22 @@ def pull_account_data(customer_id: str) -> dict:
         if qs > 0:
             quality_scores.append(qs)
 
-    # Wasted keywords: spend > $50 with 0 conversions
-    wasted_keywords = [
-        kw for kw in keywords
-        if kw["spend"] > 50 and kw["conversions"] == 0
-    ]
+    # Wasted keywords — tougher criteria, $20 threshold.
+    # When cost-per-conversion is implausibly low (< $20), the account is tracking
+    # a micro-event (click, scroll, reveal) not a real patient booking.
+    # In that case, ignore conversion counts entirely and flag by spend + low CTR.
+    conversions_invalid = 0 < cost_per_conversion < CONVERSION_VALIDITY_THRESHOLD
+    if conversions_invalid:
+        wasted_keywords = [
+            kw for kw in keywords
+            if kw["spend"] > WASTED_SPEND_THRESHOLD
+            and (kw.get("ctr", 0) < 1.0 or kw.get("clicks", 0) == 0)
+        ]
+    else:
+        wasted_keywords = [
+            kw for kw in keywords
+            if kw["spend"] > WASTED_SPEND_THRESHOLD and kw["conversions"] == 0
+        ]
     wasted_keywords = sorted(wasted_keywords, key=lambda k: k["spend"], reverse=True)
 
     # Low-QS keywords: rated 1-5 with any spend (QS 0 = unrated, skip those)
@@ -329,18 +392,52 @@ def pull_account_data(customer_id: str) -> dict:
         and all(c["status"] == "PAUSED" for c in all_spend_campaigns)
     )
 
+    # ── Search term report ────────────────────────────────────────────────────
+    search_term_query = f"""
+        SELECT
+            search_term_view.search_term,
+            metrics.cost_micros,
+            metrics.clicks,
+            metrics.impressions,
+            metrics.conversions,
+            metrics.ctr
+        FROM search_term_view
+        WHERE {date_filter}
+          AND metrics.cost_micros > 0
+        ORDER BY metrics.cost_micros DESC
+        LIMIT 300
+    """
+    raw_terms = []
+    try:
+        term_response = ga_service.search(customer_id=customer_id, query=search_term_query)
+        for row in term_response:
+            raw_terms.append({
+                "term":        row.search_term_view.search_term,
+                "spend":       round(row.metrics.cost_micros / 1_000_000, 2),
+                "clicks":      row.metrics.clicks,
+                "impressions": row.metrics.impressions,
+                "conversions": row.metrics.conversions,
+                "ctr":         round(row.metrics.ctr * 100, 2),
+            })
+    except Exception as exc:
+        logger.warning(f"Search term query failed: {exc}")
+
+    irrelevant_terms = _classify_irrelevant_terms(raw_terms)
+
     return {
         "customer_id": customer_id,
         "pulled_at": datetime.now(timezone.utc).isoformat(),
         "total_spend_90d": round(total_spend, 2),
         "total_conversions_90d": int(total_conversions),
         "cost_per_conversion": cost_per_conversion,
+        "conversions_invalid": conversions_invalid,
         "top_campaigns": top_campaigns,
         "all_campaigns_paused": all_campaigns_paused,
         "wasted_keywords": wasted_keywords[:20],
         "low_qs_keywords": low_qs_keywords,
         "avg_quality_score": avg_quality_score,
         "num_active_campaigns": num_active,
+        "irrelevant_terms": irrelevant_terms[:30],
     }
 
 

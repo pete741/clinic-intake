@@ -375,7 +375,7 @@ async def run_ads_report_now(
     Returns {"status": "success", "customer_id": ...} or {"status": "error", "detail": ...}.
     Called by the /trigger-ads-report admin endpoint.
     """
-    from ghl import update_contact_field, add_tag_to_contact
+    from ghl import update_contact_field, add_tag_to_contact, get_contact
 
     logger.info(f"Force-triggering Google Ads report for {clinic_name} ({ghl_contact_id})")
 
@@ -436,10 +436,15 @@ async def run_ads_report_now(
         # Generate PDF and email
         summary["avg_appointment_fee"] = avg_appointment_fee
         summary["avg_visits_per_patient"] = avg_visits_per_patient
+        contact = await get_contact(ghl_contact_id)
         from pdf_report import generate_pdf
         from emailer import send_ads_report
         pdf_bytes = generate_pdf(summary, clinic_name)
-        sent = send_ads_report(clinic_name, pdf_bytes, summary)
+        sent = send_ads_report(
+            clinic_name, pdf_bytes, summary,
+            contact_name=contact.get("first_name", ""),
+            contact_email=contact.get("email", ""),
+        )
 
         logger.info(f"[Force] Report complete for {clinic_name}. Email sent: {sent}")
         return {

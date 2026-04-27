@@ -377,6 +377,29 @@ async def update_contact_field(contact_id: str, field_name: str, value: str) -> 
         return True
 
 
+async def get_contact(contact_id: str) -> dict:
+    """
+    Fetches a GHL contact by ID and returns name + email.
+    Used to personalise the draft email in the ads report.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await _request_with_retry(
+            client, "GET",
+            f"{BASE_URL}/contacts/{contact_id}",
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            logger.warning(f"Could not fetch contact {contact_id}: {resp.status_code}")
+            return {}
+        data = resp.json().get("contact", {})
+        return {
+            "first_name": data.get("firstName", ""),
+            "last_name":  data.get("lastName", ""),
+            "email":      data.get("email", ""),
+            "phone":      data.get("phone", ""),
+        }
+
+
 async def add_tag_to_contact(contact_id: str, tag: str) -> bool:
     """
     Adds a tag to an existing GHL contact.

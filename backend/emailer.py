@@ -125,16 +125,43 @@ def send_submission_notification(submission: dict) -> bool:
         return False
 
 
-def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
+def send_ads_report(
+    clinic_name: str,
+    pdf_bytes: bytes,
+    ads_data: dict,
+    contact_name: str = "",
+    contact_email: str = "",
+) -> bool:
     """
     Emails the Google Ads audit PDF to pete, with a copy-paste prospect
     email draft included in the email body.
     """
     from pdf_report import generate_prospect_email_draft
-    draft = generate_prospect_email_draft(clinic_name, ads_data)
+    draft = generate_prospect_email_draft(clinic_name, ads_data, contact_name=contact_name)
     draft_html = draft.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br/>")
 
     subject = f"Google Ads Audit Ready — {clinic_name}"
+
+    # Contact info banner — shown prominently so pete can forward immediately
+    contact_rows = ""
+    if contact_name or contact_email:
+        if contact_name:
+            contact_rows += (
+                f'<tr><td style="padding:8px 12px;font-weight:600;color:#534AB7;width:30%;">Send to</td>'
+                f'<td style="padding:8px 12px;color:#374151;">{contact_name}</td></tr>\n'
+            )
+        if contact_email:
+            contact_rows += (
+                f'<tr style="background:#eeecfb;"><td style="padding:8px 12px;font-weight:600;color:#534AB7;">Email</td>'
+                f'<td style="padding:8px 12px;color:#374151;"><a href="mailto:{contact_email}" style="color:#534AB7;">{contact_email}</a></td></tr>\n'
+            )
+        contact_banner = f"""
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:4px 0;margin-bottom:20px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+{contact_rows}      </table>
+    </div>"""
+    else:
+        contact_banner = ""
 
     html = f"""
 <div style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:24px;">
@@ -144,6 +171,7 @@ def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
   </div>
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;
               padding:24px;border-radius:0 0 8px 8px;">
+    {contact_banner}
     <p style="color:#374151;margin:0 0 16px;">
       The full audit PDF is attached. Key findings are also saved to the
       GHL contact under <strong>Google Ads Intake Form → google_ads_summary</strong>.
@@ -151,7 +179,7 @@ def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
     <hr style="border:none;border-top:2px solid #D4B22F;margin:20px 0;" />
     <h2 style="font-size:15px;color:#534AB7;margin:0 0 8px;">Draft email to send to the clinic</h2>
     <p style="color:#6b7280;font-size:12px;margin:0 0 12px;">
-      Copy, personalise the bracketed sections, and send with the PDF attached.
+      Copy and send with the PDF attached.
     </p>
     <div style="background:#fff;border:1px solid #d1d5db;border-radius:6px;
                 padding:16px 20px;font-family:monospace;font-size:13px;
@@ -162,7 +190,7 @@ def send_ads_report(clinic_name: str, pdf_bytes: bytes, ads_data: dict) -> bool:
 </div>
 """
 
-    text = f"Google Ads audit for {clinic_name} — PDF attached.\n\n--- DRAFT EMAIL ---\n\n{draft}"
+    text = f"Google Ads audit for {clinic_name} — PDF attached.\n\nSend to: {contact_name} <{contact_email}>\n\n--- DRAFT EMAIL ---\n\n{draft}"
     safe = clinic_name.lower().replace(" ","_").replace("/","-")
     return _send(subject, html, text, pdf_bytes, f"google_ads_audit_{safe}.pdf")
 

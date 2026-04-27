@@ -890,9 +890,9 @@ def _section_priorities(story, styles, data: dict):
 
 # ── Prospect email draft ──────────────────────────────────────────────────────
 
-def generate_prospect_email_draft(clinic_name: str, ads_data: dict) -> str:
+def generate_prospect_email_draft(clinic_name: str, ads_data: dict, contact_name: str = "") -> str:
     """
-    Generates a plain-text draft email pete can copy, personalise, and send
+    Generates a plain-text draft email pete can copy and send
     to the clinic prospect along with the PDF report.
     """
     wasted       = ads_data.get("wasted_keywords", [])
@@ -934,9 +934,11 @@ def generate_prospect_email_draft(clinic_name: str, ads_data: dict) -> str:
     findings_text = "\n".join(findings) if findings else \
         "- Your account data is attached in full - there are several clear optimisation opportunities."
 
+    greeting = f"Hi {contact_name}," if contact_name else "Hi,"
+
     draft = f"""Subject: Your Google Ads analysis is ready - {clinic_name}
 
-Hi [First name],
+{greeting}
 
 I've had a look through your Google Ads account and put together a full analysis - attached as a PDF.
 
@@ -946,11 +948,11 @@ Here are the main things that stood out:
 
 I've outlined the specific fixes and what I'd prioritise first in the report.
 
-Happy to walk through it with you on a quick call - usually takes about 20 minutes and by the end you'll have a clear picture of exactly what to change and what it's worth.
+I'd love to walk you through it on a call - usually takes about 20 minutes and by the end you'll have a clear picture of exactly what to change, what it's costing you right now, and how we can drive a higher ROI from your ad spend.
 
-Are you free [suggest a time]?
+Find a time that suits you here: https://bookings.clinicmastery.com/pete-flynn
 
-Pete
+Pete Flynn
 Clinic Mastery
 pete@clinicmastery.com"""
 

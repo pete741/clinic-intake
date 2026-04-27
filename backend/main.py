@@ -12,6 +12,7 @@ No email code lives here.
 import asyncio
 import logging
 import os
+from typing import Optional
 
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration

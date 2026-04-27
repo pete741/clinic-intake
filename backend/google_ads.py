@@ -448,6 +448,7 @@ async def run_ads_report_now(
     ghl_contact_id: str,
     avg_appointment_fee: float = 0.0,
     avg_visits_per_patient: float = 0.0,
+    customer_id_override: str = None,
 ) -> dict:
     """
     Immediately attempts to find the clinic's Google Ads account and generate
@@ -462,34 +463,39 @@ async def run_ads_report_now(
 
     try:
         client = _build_google_ads_client()
-        customer_ids = _get_accessible_customer_ids(client)
-        logger.info(f"[Force] Found {len(customer_ids)} accessible accounts")
 
-        import re as _re
-        def _words(s):
-            return set(_re.sub(r'[^a-z0-9\s]', '', s.lower()).split())
+        if customer_id_override:
+            # Strip dashes (e.g. "516-224-4380" → "5162244380")
+            matched_id = customer_id_override.replace("-", "").strip()
+            logger.info(f"[Force] Using customer ID override: {matched_id}")
+        else:
+            customer_ids = _get_accessible_customer_ids(client)
+            logger.info(f"[Force] Found {len(customer_ids)} accessible accounts")
 
-        stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
-        clinic_words = _words(clinic_name) - stop
+            def _words(s):
+                return set(_re.sub(r'[^a-z0-9\s]', '', s.lower()).split())
 
-        matched_id = None
-        account_names = {}
-        for cid in customer_ids:
-            account_name = _get_account_name(client, cid)
-            account_names[cid] = account_name
-            logger.info(f"  [Force] Account: {cid} -> '{account_name}'")
-            account_words = _words(account_name) - stop
-            if clinic_words & account_words:
-                matched_id = cid
-                logger.info(f"[Force] Matched '{clinic_name}' to account '{account_name}' ({cid})")
-                break
+            stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
+            clinic_words = _words(clinic_name) - stop
 
-        if not matched_id:
-            return {
-                "status": "not_found",
-                "detail": f"No Google Ads account found matching '{clinic_name}'",
-                "accounts_checked": list(account_names.values()),
-            }
+            matched_id = None
+            account_names = {}
+            for cid in customer_ids:
+                account_name = _get_account_name(client, cid)
+                account_names[cid] = account_name
+                logger.info(f"  [Force] Account: {cid} -> '{account_name}'")
+                account_words = _words(account_name) - stop
+                if clinic_words & account_words:
+                    matched_id = cid
+                    logger.info(f"[Force] Matched '{clinic_name}' to account '{account_name}' ({cid})")
+                    break
+
+            if not matched_id:
+                return {
+                    "status": "not_found",
+                    "detail": f"No Google Ads account found matching '{clinic_name}'",
+                    "accounts_checked": list(account_names.values()),
+                }
 
         # Pull full account data
         summary = pull_account_data(matched_id)

@@ -308,6 +308,7 @@ class TriggerAdsRequest(BaseModel):
     avg_appointment_fee: float = 0.0
     avg_visits_per_patient: float = 0.0
     admin_key: str
+    google_ads_customer_id: Optional[str] = None  # skip name matching if provided
 
 
 @app.post("/trigger-ads-report")
@@ -330,6 +331,7 @@ async def trigger_ads_report(req: TriggerAdsRequest):
         req.contact_id,
         req.avg_appointment_fee,
         req.avg_visits_per_patient,
+        customer_id_override=req.google_ads_customer_id,
     )
 
     if result.get("status") == "error":

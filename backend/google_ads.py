@@ -356,17 +356,12 @@ def pull_account_data(customer_id: str) -> dict:
         if qs > 0:
             quality_scores.append(qs)
 
-    # Wasted keywords — tougher criteria, $20 threshold.
     # When cost-per-conversion is implausibly low (< $20), the account is tracking
-    # a micro-event (click, scroll, reveal) not a real patient booking.
-    # In that case, ignore conversion counts entirely and flag by spend + low CTR.
+    # a micro-event not a real patient booking. In that case wasted spend analysis
+    # is meaningless — return empty list and let the conversion health section explain.
     conversions_invalid = 0 < cost_per_conversion < CONVERSION_VALIDITY_THRESHOLD
     if conversions_invalid:
-        wasted_keywords = [
-            kw for kw in keywords
-            if kw["spend"] > WASTED_SPEND_THRESHOLD
-            and (kw.get("ctr", 0) < 1.0 or kw.get("clicks", 0) == 0)
-        ]
+        wasted_keywords = []
     else:
         wasted_keywords = [
             kw for kw in keywords

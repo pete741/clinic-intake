@@ -347,34 +347,29 @@ def _section_visibility(story, styles, data: dict):
 def _section_wasted(story, styles, data: dict):
     _spacer(story, 10)
     conversions_invalid = data.get("conversions_invalid", False)
-    title = (
-        "3. Wasted Spend - Low Engagement Keywords (Conversions Excluded: Tracking Unreliable)"
-        if conversions_invalid else
-        "3. Wasted Spend - High Cost, Zero Conversions"
-    )
-    story.append(Paragraph(title, styles["section"]))
+    story.append(Paragraph("3. Wasted Spend - High Cost, Zero Conversions", styles["section"]))
     _rule(story)
 
     keywords = data.get("wasted_keywords", [])
     if not keywords:
-        story.append(Paragraph("✓ No significant wasted keywords found in this period.", styles["ok"]))
+        if conversions_invalid:
+            _info_box(story, styles,
+                "⚠ <b>Wasted spend analysis is not available for this account.</b> The recorded "
+                "cost per conversion is under $20, which is not achievable for real patient bookings. "
+                "This means conversion tracking is misconfigured — see Section 6 for details. "
+                "Once tracking is fixed, this section will accurately identify keywords burning "
+                "budget without producing patient enquiries.",
+                bg=AMBER_LIGHT, border=AMBER)
+        else:
+            story.append(Paragraph("✓ No significant wasted keywords found in this period.", styles["ok"]))
         _spacer(story, 2)
         return
 
     total = sum(k.get("spend", 0) for k in keywords)
-    if conversions_invalid:
-        story.append(Paragraph(
-            f"<b>Conversion data has been excluded from this analysis</b> — the recorded cost per "
-            f"conversion is under $20, which is not achievable for real patient bookings. "
-            f"The account is almost certainly tracking a micro-event, not an actual enquiry. "
-            f"The {len(keywords)} keyword{'s' if len(keywords)!=1 else ''} below had spend over $20 "
-            f"with low click-through rates, indicating poor audience match.",
-            styles["warn"]))
-    else:
-        story.append(Paragraph(
-            f"<b>Total wasted spend: {_fmt_d(total)}</b> across {len(keywords)} "
-            f"keyword{'s' if len(keywords)!=1 else ''} with spend over $20 and zero conversions.",
-            styles["warn"]))
+    story.append(Paragraph(
+        f"<b>Total wasted spend: {_fmt_d(total)}</b> across {len(keywords)} "
+        f"keyword{'s' if len(keywords)!=1 else ''} with spend over $20 and zero conversions.",
+        styles["warn"]))
     _spacer(story, 2)
 
     rows = [["Keyword", "Match Type", "Spend", "Clicks", "Impressions", "Quality Score", "Action"]]

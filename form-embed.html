@@ -1,0 +1,631 @@
+<!-- ============================================================
+     Clinic Mastery — Google Ads Intake Form (Embed Code Block)
+     Paste this entire block into a GHL Custom Code element.
+     No header, no footer, no hero — just the multi-step form.
+     ============================================================ -->
+
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@500;600;700;800;900&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/css/intlTelInput.css" />
+
+<div id="cm-form-wrap">
+
+  <div id="cm-form-card">
+
+    <!-- Progress bar -->
+    <div id="cm-progress-wrap" style="margin-bottom:2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+        <span id="cm-step-label" style="font-size:0.8rem; font-weight:600; color:#374151;">Step 1 of 4 — About your clinic</span>
+        <span id="cm-step-pct" style="font-size:0.8rem; color:#9ca3af;">25%</span>
+      </div>
+      <div style="background:#e5e7eb; border-radius:9999px; height:6px;">
+        <div id="cm-progress-fill" style="width:25%; height:6px; border-radius:9999px;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:0.5rem;">
+        <div id="cm-d1" style="width:10px;height:10px;border-radius:50%;background:#6363f1;"></div>
+        <div id="cm-d2" style="width:10px;height:10px;border-radius:50%;background:#d1d5db;"></div>
+        <div id="cm-d3" style="width:10px;height:10px;border-radius:50%;background:#d1d5db;"></div>
+        <div id="cm-d4" style="width:10px;height:10px;border-radius:50%;background:#d1d5db;"></div>
+      </div>
+    </div>
+
+    <!-- Error banner -->
+    <div id="cm-global-err" style="display:none; background:#fef2f2; border:1px solid #fecaca; border-radius:0.5rem; padding:0.75rem 1rem; font-size:0.875rem; color:#b91c1c; margin-bottom:1.25rem;"></div>
+
+    <!-- STEP 1 -->
+    <div class="cm-step cm-active" id="cm-s1">
+      <h2 class="cm-step-title">About your clinic</h2>
+      <p class="cm-step-sub">Tell us the basics — this becomes the foundation of your growth brief.</p>
+      <div class="cm-fields">
+        <div>
+          <label class="cm-label">Clinic name *</label>
+          <input id="cm-clinic_name" class="cm-input" type="text" placeholder="e.g. Bayside Physio" />
+          <div class="cm-err" id="cm-e-clinic_name">Clinic name is required</div>
+        </div>
+        <div>
+          <label class="cm-label">Email address *</label>
+          <input id="cm-email" class="cm-input" type="email" placeholder="you@yourclinic.com.au" />
+          <div class="cm-err" id="cm-e-email">Enter a valid email address</div>
+        </div>
+        <div>
+          <label class="cm-label">Mobile number *</label>
+          <input id="cm-phone" class="cm-input" type="tel" placeholder="Mobile number" />
+          <div class="cm-err" id="cm-e-phone">Enter a valid mobile number</div>
+        </div>
+        <div>
+          <label class="cm-label">Primary specialty *</label>
+          <select id="cm-primary_specialty" class="cm-input">
+            <option value="">Select a specialty…</option>
+            <option>Physiotherapy</option><option>Chiropractic</option>
+            <option>Occupational therapy</option><option>Podiatry</option>
+            <option>Psychology</option><option>Exercise physiology</option>
+            <option>Speech pathology</option><option>Osteopathy</option>
+            <option>Other allied health</option>
+          </select>
+          <div class="cm-err" id="cm-e-primary_specialty">Please select a specialty</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+          <div>
+            <label class="cm-label">Suburb / City *</label>
+            <input id="cm-suburb" class="cm-input" type="text" placeholder="e.g. Newstead" />
+            <div class="cm-err" id="cm-e-suburb">Suburb is required</div>
+          </div>
+          <div>
+            <label class="cm-label">State / Region *</label>
+            <select id="cm-state" class="cm-input">
+              <option value="">Select…</option>
+              <option>QLD</option><option>NSW</option><option>VIC</option>
+              <option>WA</option><option>SA</option><option>TAS</option>
+              <option>ACT</option><option>NT</option><option>Other</option>
+            </select>
+            <div class="cm-err" id="cm-e-state">Please select a state</div>
+          </div>
+        </div>
+        <div>
+          <label class="cm-label">Number of practitioners *</label>
+          <input id="cm-num_practitioners" class="cm-input" type="number" min="1" placeholder="e.g. 3" />
+          <div class="cm-err" id="cm-e-num_practitioners">Enter at least 1 practitioner</div>
+        </div>
+        <div>
+          <label class="cm-label">Website URL *</label>
+          <input id="cm-website_url" class="cm-input" type="text" placeholder="https://www.yourclinic.com.au" />
+          <div class="cm-err" id="cm-e-website_url">Enter a valid URL starting with https://</div>
+        </div>
+      </div>
+      <div class="cm-nav-row cm-nav-right">
+        <button class="cm-brand-btn" onclick="cmNext(1)">Next &rarr;</button>
+      </div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="cm-step" id="cm-s2">
+      <h2 class="cm-step-title">Patient &amp; revenue context</h2>
+      <p class="cm-step-sub">These numbers help us calculate your true cost per new patient.</p>
+      <div class="cm-fields">
+        <div>
+          <label class="cm-label">Average appointment fee *</label>
+          <p class="cm-hint">Typical fee per appointment before health fund rebates</p>
+          <div class="cm-dollar-wrap"><input id="cm-avg_appointment_fee" class="cm-input" type="number" min="0" placeholder="95" /></div>
+          <div class="cm-err" id="cm-e-avg_appointment_fee">Enter average appointment fee</div>
+        </div>
+        <div>
+          <label class="cm-label">Average visits per patient *</label>
+          <p class="cm-hint">How many appointments before a typical patient discharges?</p>
+          <input id="cm-avg_visits_per_patient" class="cm-input" type="number" min="0" step="0.5" placeholder="6" />
+          <div class="cm-err" id="cm-e-avg_visits_per_patient">Enter average visits per patient</div>
+        </div>
+        <div>
+          <label class="cm-label">New patients per month *</label>
+          <p class="cm-hint">Across the whole clinic</p>
+          <input id="cm-new_patients_per_month" class="cm-input" type="number" min="0" placeholder="40" />
+          <div class="cm-err" id="cm-e-new_patients_per_month">Enter new patients per month</div>
+        </div>
+        <div>
+          <label class="cm-label">Monthly Google Ads spend *</label>
+          <p class="cm-hint">Enter 0 if not currently running ads</p>
+          <div class="cm-dollar-wrap"><input id="cm-monthly_ad_spend" class="cm-input" type="number" min="0" placeholder="2000" /></div>
+          <div class="cm-err" id="cm-e-monthly_ad_spend">Enter monthly ad spend (0 if none)</div>
+        </div>
+        <div>
+          <label class="cm-label">Appointment types you want to grow *</label>
+          <input id="cm-appointment_types_to_grow" class="cm-input" type="text" placeholder="Initial consult, post-surgical rehab, NDIS" />
+          <div class="cm-err" id="cm-e-appointment_types_to_grow">Enter at least one appointment type</div>
+        </div>
+      </div>
+      <div class="cm-nav-row">
+        <button class="cm-back-btn" onclick="cmBack(2)">&larr; Back</button>
+        <button class="cm-brand-btn" onclick="cmNext(2)">Next &rarr;</button>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="cm-step" id="cm-s3">
+      <h2 class="cm-step-title">Goals &amp; context</h2>
+      <p class="cm-step-sub">Help us understand what success looks like for you right now.</p>
+      <div class="cm-fields">
+        <div>
+          <label class="cm-label">Main goal *</label>
+          <select id="cm-main_goal" class="cm-input">
+            <option value="">Select your primary goal…</option>
+            <option>Fill practitioner diaries faster</option>
+            <option>Reduce cost per new patient</option>
+            <option>Grow a specific service type</option>
+            <option>Onboard a new practitioner</option>
+            <option>Expand to a second location</option>
+            <option>Understand what's working — I want an audit</option>
+          </select>
+          <div class="cm-err" id="cm-e-main_goal">Please select your main goal</div>
+        </div>
+        <div>
+          <label class="cm-label">Additional context <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+          <p class="cm-hint">The more context you give, the more specific the brief.</p>
+          <textarea id="cm-additional_context" class="cm-input" rows="5" style="resize:none;" placeholder="Competitors, recent changes, challenges, what's worked before…"></textarea>
+        </div>
+      </div>
+      <div class="cm-nav-row">
+        <button class="cm-back-btn" onclick="cmBack(3)">&larr; Back</button>
+        <button class="cm-brand-btn" onclick="cmNext(3)">Next &rarr;</button>
+      </div>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="cm-step" id="cm-s4">
+      <span class="cm-badge">Optional but recommended</span>
+      <h2 class="cm-step-title" style="margin-top:0.5rem;">Unlock a deeper analysis of your Google Ads account</h2>
+      <p class="cm-step-sub">Without this we can tell you what's possible. With it we can tell you <strong>exactly what's wrong and what to fix first.</strong></p>
+
+      <div class="cm-ads-card">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; font-size:0.8rem;">
+          <div>
+            <p style="font-weight:600; color:#374151; margin:0 0 0.5rem;">Without access</p>
+            <ul style="list-style:none; padding:0; margin:0; color:#6b7280; display:flex; flex-direction:column; gap:0.4rem;">
+              <li>• Market &amp; competitor overview</li>
+              <li>• Estimated cost per new patient</li>
+              <li>• Benchmark vs similar clinics</li>
+              <li>• Growth opportunity summary</li>
+            </ul>
+          </div>
+          <div>
+            <p style="font-weight:600; color:#6363f1; margin:0 0 0.5rem;">With access</p>
+            <ul style="list-style:none; padding:0; margin:0; color:#374151; display:flex; flex-direction:column; gap:0.4rem;">
+              <li style="color:#9ca3af; font-style:italic; font-size:0.72rem;">Everything on the left, PLUS:</li>
+              <li style="display:flex;"><span class="cm-tick">✓</span> Actual wasted spend identified</li>
+              <li style="display:flex;"><span class="cm-tick">✓</span> Keyword gaps vs competitors</li>
+              <li style="display:flex;"><span class="cm-tick">✓</span> Campaign structure audit</li>
+              <li style="display:flex;"><span class="cm-tick">✓</span> Quality score breakdown</li>
+              <li style="display:flex;"><span class="cm-tick">✓</span> Prioritised fix list before the call</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="cm-fields">
+        <div>
+          <label class="cm-label">Do you currently run Google Ads?</label>
+          <select id="cm-has_google_ads" class="cm-input" onchange="cmHandleAds()">
+            <option value="">Select an option…</option>
+            <option>Yes — I have an active account</option>
+            <option>Yes — managed by another agency</option>
+            <option>Yes — but paused or inactive</option>
+            <option>No — I don't run Google Ads yet</option>
+          </select>
+        </div>
+
+        <div id="cm-invite-panel" style="display:none; border:1px solid #c4b9f5; border-radius:0.75rem; background:#fff; padding:1.25rem;">
+          <p style="font-size:0.875rem; font-weight:600; color:#111827; margin:0 0 0.75rem;">How to grant read-only access (2 minutes):</p>
+          <ol style="list-style:none; padding:0; margin:0 0 1rem; display:flex; flex-direction:column; gap:0.6rem; font-size:0.8rem; color:#374151;">
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;"><span class="cm-step-circle">1</span><span>Sign into Google Ads at <code style="background:#f3f4f6; padding:0.1rem 0.3rem; border-radius:0.25rem; font-size:0.72rem;">ads.google.com</code></span></li>
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;"><span class="cm-step-circle">2</span><span>Click <strong>Admin</strong> in the left sidebar → <strong>Access and security</strong></span></li>
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;"><span class="cm-step-circle">3</span><span>Click <strong>+ Invite users</strong> top right</span></li>
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;">
+              <span class="cm-step-circle">4</span>
+              <span>Enter our email:
+                <span id="cm-copy-email" onclick="cmCopyEmail()"
+                  style="cursor:pointer; font-weight:700; color:#6363f1; background:#eeecfb; padding:0.1rem 0.5rem; border-radius:0.3rem; margin-left:0.2rem;"
+                  title="Click to copy">clinicmasteryads@gmail.com</span>
+                <span id="cm-copy-ok" style="display:none; color:#16a34a; font-size:0.72rem; margin-left:0.3rem;">✓ Copied!</span>
+              </span>
+            </li>
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;"><span class="cm-step-circle">5</span><span>Set access level to <strong>Read only</strong></span></li>
+            <li style="display:flex; gap:0.6rem; align-items:flex-start;"><span class="cm-step-circle">6</span><span>Click <strong>Send invitation</strong></span></li>
+          </ol>
+          <div>
+            <label class="cm-label">Have you sent the invitation?</label>
+            <select id="cm-invite_sent" class="cm-input">
+              <option value="">Select one…</option>
+              <option>I'll do this after submitting</option>
+              <option>Yes, I've sent the invitation</option>
+              <option>I'd prefer to skip this for now</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="cm-no-ads-msg" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; border-radius:0.5rem; padding:0.9rem 1rem; font-size:0.875rem; color:#1e40af;">
+          No problem — we'll design your initial campaign structure based on your market and competitors. You'll get a full launch strategy in your brief.
+        </div>
+      </div>
+
+      <div class="cm-nav-row">
+        <button class="cm-back-btn" onclick="cmBack(4)">&larr; Back</button>
+        <button id="cm-submit-btn" class="cm-brand-btn" onclick="cmDoSubmit()">Generate my growth brief &rarr;</button>
+      </div>
+      <div style="text-align:center; margin-top:0.75rem;">
+        <button onclick="cmSkipAds()" style="background:none; border:none; font-size:0.72rem; color:#9ca3af; cursor:pointer; text-decoration:underline;">
+          Skip Google Ads access and generate a standard brief
+        </button>
+      </div>
+    </div>
+
+    <!-- THANK YOU -->
+    <div class="cm-step" id="cm-s-ty">
+      <div style="text-align:center; padding:1rem 0;">
+        <div style="width:4.5rem; height:4.5rem; border-radius:50%; background:linear-gradient(135deg,#f0d140,#ff8e21); display:flex; align-items:center; justify-content:center; margin:0 auto 1.25rem; box-shadow:0 8px 24px rgba(176,139,46,0.35);">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#1a1a1a" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h2 style="font-size:1.5rem; font-weight:800; color:#111827; margin:0 0 0.5rem; font-family:'Lexend',sans-serif;">Your brief is being generated</h2>
+        <p style="font-size:0.875rem; color:#6b7280; margin:0 0 1.5rem;">Thanks for filling that in. We're putting together your personalised growth brief now and will be in touch shortly.</p>
+        <div style="background:#eeecfb; border:1px solid #c4b9f5; border-radius:0.75rem; padding:1.25rem; text-align:left; margin-bottom:1.25rem;">
+          <p style="font-size:0.875rem; font-weight:700; color:#6363f1; margin:0 0 0.5rem; font-family:'Lexend',sans-serif;">What happens next?</p>
+          <ul style="font-size:0.82rem; color:#374151; margin:0; padding-left:1rem; line-height:1.9;">
+            <li>We'll review your intake details</li>
+            <li>Build your personalised growth brief</li>
+            <li>Reach out to schedule a strategy call</li>
+          </ul>
+        </div>
+        <div style="background:#0f172a;border-radius:12px;padding:24px 28px;text-align:left;margin-bottom:1.25rem;">
+          <p style="color:#fff;font-weight:700;font-size:16px;margin:0 0 6px;font-family:'Lexend',sans-serif;">Want Pete to walk you through it personally?</p>
+          <p style="color:#94a3b8;font-size:13px;margin:0 0 16px;">Once your report is ready, book a free 15-minute call and Pete will show you exactly:</p>
+          <ul style="margin:0 0 20px;padding:0;list-style:none;">
+            <li style="color:#e2e8f0;font-size:13px;margin-bottom:8px;display:flex;gap:8px;"><span style="color:#f87171;font-weight:700;flex-shrink:0;">→</span> Where your Google Ads budget is being wasted — down to the dollar</li>
+            <li style="color:#e2e8f0;font-size:13px;margin-bottom:8px;display:flex;gap:8px;"><span style="color:#f87171;font-weight:700;flex-shrink:0;">→</span> The specific fixes that will lower your cost-per-lead immediately</li>
+            <li style="color:#e2e8f0;font-size:13px;display:flex;gap:8px;"><span style="color:#f87171;font-weight:700;flex-shrink:0;">→</span> A realistic projection of what better-managed spend means for your revenue</li>
+          </ul>
+          <a href="https://bookings.clinicmastery.com/pete-flynn" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;background:#dc2626;color:#fff;font-weight:600;font-size:14px;padding:13px 20px;border-radius:8px;text-decoration:none;font-family:'Lexend',sans-serif;">Book a Free Report Walk-Through</a>
+          <p style="color:#64748b;font-size:11px;text-align:center;margin:10px 0 0;">15 minutes. No obligation. Just clarity on what's costing you.</p>
+        </div>
+        <p style="font-size:0.72rem; color:#9ca3af;">Questions? <a href="mailto:pete@clinicmastery.com" style="color:#6363f1;">pete@clinicmastery.com</a></p>
+      </div>
+    </div>
+
+  </div><!-- /card -->
+
+  <p style="text-align:center; font-size:0.72rem; color:#9ca3af; margin-top:1rem;">Your information is used only to prepare your growth brief. We don't share it.</p>
+
+</div><!-- /cm-form-wrap -->
+
+<style>
+/* All styles scoped to #cm-form-wrap to avoid conflicts with GHL page styles */
+#cm-form-wrap {
+  width: 100%;
+  font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #2a2b2b;
+  line-height: 1.6;
+}
+#cm-form-wrap *, #cm-form-wrap *::before, #cm-form-wrap *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+#cm-form-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e3e5e8;
+  box-shadow: 0 10px 30px rgba(62,15,21,0.08);
+  padding: 2.25rem;
+  width: 100%;
+}
+#cm-progress-fill {
+  transition: width 0.3s ease;
+  background: linear-gradient(90deg, #6363f1 0%, #8585f5 100%);
+}
+.cm-step { display: none; }
+.cm-active { display: block; }
+.cm-step-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 0.25rem;
+  font-family: 'Lexend', sans-serif;
+}
+.cm-step-sub {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0 0 1.5rem;
+}
+.cm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.cm-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.3rem;
+}
+.cm-hint {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  margin: 0 0 0.3rem;
+}
+.cm-input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  background: #fff;
+  font-family: 'Instrument Sans', sans-serif;
+  color: #2a2b2b;
+}
+.cm-input:focus {
+  border-color: #6363f1;
+  box-shadow: 0 0 0 3px rgba(99,99,241,0.12);
+}
+.cm-input.cm-error { border-color: #f87171; }
+.cm-err {
+  display: none;
+  color: #dc2626;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+.cm-err.cm-visible { display: block; }
+.cm-dollar-wrap { position: relative; }
+.cm-dollar-wrap .cm-input { padding-left: 1.5rem; }
+.cm-dollar-wrap::before {
+  content: '$';
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  font-size: 0.875rem;
+  pointer-events: none;
+}
+.cm-brand-btn {
+  background: linear-gradient(90deg, #f0d140 0%, #ff8e21 100%);
+  color: #1a1a1a;
+  font-family: 'Lexend', sans-serif;
+  font-weight: 700;
+  padding: 0.7rem 1.75rem;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  box-shadow: 0 4px 31px rgba(176,139,46,0.3);
+}
+.cm-brand-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 31px rgba(176,139,46,0.45); }
+.cm-brand-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.cm-back-btn {
+  background: #fff;
+  color: #6b7280;
+  font-weight: 500;
+  padding: 0.7rem 1.25rem;
+  border-radius: 4px;
+  border: 1px solid #e3e5e8;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 0.875rem;
+}
+.cm-back-btn:hover { border-color: #9ca3af; color: #374151; }
+.cm-nav-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+.cm-nav-right { justify-content: flex-end; }
+.cm-ads-card {
+  border: 2px solid #c4b9f5;
+  border-radius: 0.75rem;
+  background: #eeecfb;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.cm-badge {
+  display: inline-block;
+  background: #eeecfb;
+  color: #6363f1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  margin-bottom: 0.75rem;
+}
+.cm-tick { color: #16a34a; display: inline-block; width: 1rem; margin-right: 0.35rem; flex-shrink: 0; }
+.cm-step-circle {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: #6363f1;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cm-spin {
+  animation: cm-spin 1s linear infinite;
+  border: 2px solid rgba(26,26,26,0.25);
+  border-top-color: #1a1a1a;
+  border-radius: 50%;
+  width: 1rem;
+  height: 1rem;
+}
+@keyframes cm-spin { to { transform: rotate(360deg); } }
+/* intl-tel-input overrides scoped to our wrapper */
+#cm-form-wrap .iti { width: 100%; }
+#cm-form-wrap .iti__flag-container { z-index: 10; }
+#cm-form-wrap .iti__selected-flag { border-radius: 4px 0 0 4px; background: #f9fafb; border-right: 1px solid #d1d5db; }
+#cm-form-wrap .iti--separate-dial-code .iti__selected-flag { background: #f9fafb; }
+#cm-form-wrap .iti--separate-dial-code input { padding-left: 90px !important; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/intlTelInput.min.js"></script>
+<script>
+(function() {
+  const BACKEND_URL = 'https://clinic-intake.onrender.com';
+  const LABELS = ['','About your clinic','Patient & revenue','Goals & context','Google Ads access'];
+  let cmCur = 1;
+  let cmIti;
+
+  document.addEventListener('DOMContentLoaded', function() {
+    cmIti = window.intlTelInput(document.getElementById('cm-phone'), {
+      initialCountry: 'au',
+      preferredCountries: ['au', 'nz', 'gb', 'us', 'ca'],
+      separateDialCode: true,
+      utilsScript: 'https://cdn.jsdelivr.net/npm/intl-tel-input@19.5.7/build/js/utils.js',
+    });
+  });
+
+  function cmSetProgress(n) {
+    const pct = Math.round((n / 4) * 100);
+    document.getElementById('cm-progress-fill').style.width = pct + '%';
+    document.getElementById('cm-step-label').textContent = 'Step ' + n + ' of 4 — ' + LABELS[n];
+    document.getElementById('cm-step-pct').textContent = pct + '%';
+    for (let i = 1; i <= 4; i++) {
+      document.getElementById('cm-d' + i).style.background = i <= n ? '#6363f1' : '#d1d5db';
+    }
+  }
+
+  function cmShowStep(n) {
+    document.querySelectorAll('.cm-step').forEach(function(el) { el.classList.remove('cm-active'); });
+    document.getElementById(n === 'ty' ? 'cm-s-ty' : 'cm-s' + n).classList.add('cm-active');
+    if (n === 'ty') {
+      document.getElementById('cm-progress-wrap').style.display = 'none';
+    }
+    document.getElementById('cm-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function cmV(id) { return (document.getElementById(id)?.value || '').trim(); }
+
+  function cmSetErr(id, msg, show) {
+    const e = document.getElementById('cm-e-' + id);
+    const inp = document.getElementById('cm-' + id);
+    if (!e) return;
+    if (show) { e.textContent = msg; e.classList.add('cm-visible'); if (inp) inp.classList.add('cm-error'); }
+    else       { e.classList.remove('cm-visible'); if (inp) inp.classList.remove('cm-error'); }
+  }
+
+  function cmValidate(step) {
+    let ok = true;
+    if (step === 1) {
+      ['clinic_name','email','phone','primary_specialty','suburb','state','num_practitioners','website_url']
+        .forEach(function(f) { cmSetErr(f, '', false); });
+      if (!cmV('clinic_name')) { cmSetErr('clinic_name', 'Clinic name is required', true); ok = false; }
+      const em = cmV('email');
+      if (!em) { cmSetErr('email', 'Email is required', true); ok = false; }
+      else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { cmSetErr('email', 'Enter a valid email address', true); ok = false; }
+      if (!cmIti || !cmIti.isValidNumber()) { cmSetErr('phone', 'Enter a valid mobile number', true); ok = false; }
+      if (!cmV('primary_specialty')) { cmSetErr('primary_specialty', 'Please select a specialty', true); ok = false; }
+      if (!cmV('suburb')) { cmSetErr('suburb', 'Suburb is required', true); ok = false; }
+      if (!cmV('state'))  { cmSetErr('state', 'Please select a state', true); ok = false; }
+      if (!cmV('num_practitioners') || parseInt(cmV('num_practitioners')) < 1) { cmSetErr('num_practitioners', 'Enter at least 1 practitioner', true); ok = false; }
+      const url = cmV('website_url');
+      if (!url) { cmSetErr('website_url', 'Website URL is required', true); ok = false; }
+      else if (!/^https?:\/\/.+/.test(url)) { cmSetErr('website_url', 'Enter a valid URL starting with https://', true); ok = false; }
+    }
+    if (step === 2) {
+      ['avg_appointment_fee','avg_visits_per_patient','new_patients_per_month','monthly_ad_spend','appointment_types_to_grow']
+        .forEach(function(f) { cmSetErr(f, '', false); });
+      if (!cmV('avg_appointment_fee') || parseFloat(cmV('avg_appointment_fee')) <= 0) { cmSetErr('avg_appointment_fee', 'Enter average appointment fee', true); ok = false; }
+      if (!cmV('avg_visits_per_patient') || parseFloat(cmV('avg_visits_per_patient')) <= 0) { cmSetErr('avg_visits_per_patient', 'Enter average visits per patient', true); ok = false; }
+      if (cmV('new_patients_per_month') === '') { cmSetErr('new_patients_per_month', 'Enter new patients per month', true); ok = false; }
+      if (cmV('monthly_ad_spend') === '')       { cmSetErr('monthly_ad_spend', 'Enter monthly ad spend (0 if none)', true); ok = false; }
+      if (!cmV('appointment_types_to_grow'))    { cmSetErr('appointment_types_to_grow', 'Enter at least one appointment type', true); ok = false; }
+    }
+    if (step === 3) {
+      cmSetErr('main_goal', '', false);
+      if (!cmV('main_goal')) { cmSetErr('main_goal', 'Please select your main goal', true); ok = false; }
+    }
+    return ok;
+  }
+
+  window.cmNext = function(from) {
+    if (!cmValidate(from)) return;
+    cmCur = from + 1;
+    cmSetProgress(cmCur);
+    cmShowStep(cmCur);
+  };
+  window.cmBack = function(from) {
+    cmCur = from - 1;
+    cmSetProgress(cmCur);
+    cmShowStep(cmCur);
+  };
+
+  window.cmHandleAds = function() {
+    const val = cmV('has_google_ads');
+    document.getElementById('cm-invite-panel').style.display = val.startsWith('Yes') ? 'block' : 'none';
+    document.getElementById('cm-no-ads-msg').style.display   = val.startsWith('No')  ? 'block' : 'none';
+  };
+
+  window.cmCopyEmail = function() {
+    navigator.clipboard.writeText('clinicmasteryads@gmail.com').then(function() {
+      const ok = document.getElementById('cm-copy-ok');
+      ok.style.display = 'inline';
+      setTimeout(function() { ok.style.display = 'none'; }, 2000);
+    });
+  };
+
+  window.cmDoSubmit = async function(inviteSentOverride) {
+    const btn = document.getElementById('cm-submit-btn');
+    const errBanner = document.getElementById('cm-global-err');
+    errBanner.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<div class="cm-spin"></div> Generating…';
+
+    const inviteSent = inviteSentOverride || cmV('invite_sent') || 'Not sent';
+
+    try {
+      const resp = await fetch(BACKEND_URL + '/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clinic_name:               cmV('clinic_name'),
+          email:                     cmV('email'),
+          phone:                     cmIti ? cmIti.getNumber() : null,
+          primary_specialty:         cmV('primary_specialty'),
+          suburb:                    cmV('suburb'),
+          state:                     cmV('state'),
+          num_practitioners:         parseInt(cmV('num_practitioners')) || 1,
+          website_url:               cmV('website_url'),
+          avg_appointment_fee:       parseFloat(cmV('avg_appointment_fee')) || 0,
+          avg_visits_per_patient:    parseFloat(cmV('avg_visits_per_patient')) || 0,
+          new_patients_per_month:    parseInt(cmV('new_patients_per_month')) || 0,
+          monthly_ad_spend:          parseFloat(cmV('monthly_ad_spend')) || 0,
+          appointment_types_to_grow: cmV('appointment_types_to_grow'),
+          main_goal:                 cmV('main_goal'),
+          additional_context:        cmV('additional_context') || null,
+          has_google_ads:            cmV('has_google_ads') || null,
+          invite_sent:               inviteSent,
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(function() { return {}; });
+        throw new Error(err.detail || err.message || 'Error ' + resp.status);
+      }
+
+      cmShowStep('ty');
+
+    } catch(err) {
+      errBanner.textContent = err.message || 'Something went wrong — please try again.';
+      errBanner.style.display = 'block';
+      btn.disabled = false;
+      btn.innerHTML = 'Generate my growth brief &rarr;';
+      document.getElementById('cm-form-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  window.cmSkipAds = function() { window.cmDoSubmit('skipped'); };
+})();
+</script>

@@ -1,66 +1,106 @@
 """
-Sends emails for the clinic intake system via Resend API.
+Sends emails for the clinic intake system via Gmail SMTP.
 
 Two email types:
-  1. Google Ads audit — full PDF report + prospect draft email to pete
-  2. Intake brief     — standard brief PDF for clinics without Google Ads access
+  1. Google Ads audit - full PDF report + prospect draft email to pete
+  2. Intake brief     - standard brief PDF for clinics without Google Ads access
+
+Uses Gmail SMTP (not Resend) because the Resend test-mode sender
+(onboarding@resend.dev) had deliverability issues with Google Workspace
+inboxes and a 6-per-day quota cap. Gmail SMTP sends from pete@clinicmastery.com
+directly, with the existing SPF/DKIM/DMARC for the domain.
 
 Requires in .env / Render env vars:
-  RESEND_API_KEY — API key from resend.com
+  GMAIL_ADDRESS      - the Google Workspace address to send from
+  GMAIL_APP_PASSWORD - app password from myaccount.google.com/apppasswords
 """
-
 import logging
 import os
+import smtplib
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import formataddr, make_msgid
 
-import resend
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-resend.api_key = os.getenv("RESEND_API_KEY", "")
-FROM_ADDRESS   = "Clinic Mastery <onboarding@resend.dev>"
-NOTIFY_EMAIL   = "pete@clinicmastery.com"
+GMAIL_ADDRESS      = os.getenv("GMAIL_ADDRESS", "").strip()
+# App passwords are typically displayed with spaces in the Google UI but the
+# actual auth value is the spaceless form. Strip them so either copy works.
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+NOTIFY_EMAIL       = "pete@clinicmastery.com"
+FROM_NAME          = "Clinic Mastery"
+
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 465
+SMTP_TIMEOUT = 30
 
 
-def _send(subject: str, html: str, text: str, pdf_bytes: bytes, filename: str) -> bool:
-    """Core send helper — sends via Resend API with PDF attachment."""
-    if not resend.api_key:
-        logger.error("RESEND_API_KEY not set — cannot send email")
+def _send(
+    subject: str,
+    html: str,
+    text: str = "",
+    pdf_bytes: bytes = None,
+    filename: str = None,
+) -> bool:
+    """Core send helper. Sends via Gmail SMTP over SSL.
+
+    pdf_bytes + filename are optional. Omit for messages without attachments
+    (e.g. submission notifications).
+    """
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        logger.error("GMAIL_ADDRESS or GMAIL_APP_PASSWORD not set, cannot send email")
         return False
 
+    # Top level is "mixed" so the PDF attaches alongside the body. The body
+    # itself is "alternative" wrapping the plain-text and HTML parts.
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"]    = formataddr((FROM_NAME, GMAIL_ADDRESS))
+    msg["To"]      = NOTIFY_EMAIL
+    msg["Message-ID"] = make_msgid(domain=GMAIL_ADDRESS.split("@", 1)[-1] or "clinicmastery.com")
+
+    body = MIMEMultipart("alternative")
+    if text:
+        body.attach(MIMEText(text, "plain", "utf-8"))
+    body.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(body)
+
+    if pdf_bytes:
+        part = MIMEApplication(pdf_bytes, _subtype="pdf")
+        part.add_header(
+            "Content-Disposition", "attachment",
+            filename=(filename or "attachment.pdf"),
+        )
+        msg.attach(part)
+
     try:
-        resend.Emails.send({
-            "from":    FROM_ADDRESS,
-            "to":      [NOTIFY_EMAIL],
-            "subject": subject,
-            "html":    html,
-            "attachments": [{"filename": filename, "content": list(pdf_bytes)}],
-        })
-        logger.info(f"Email sent: {subject}")
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+        logger.info(f"Email sent via Gmail SMTP: {subject}")
         return True
     except Exception as exc:
-        logger.error(f"Email send failed: {exc}")
+        logger.error(f"Gmail SMTP send failed: {exc}")
         return False
 
 
 def send_submission_notification(submission: dict) -> bool:
     """
-    Fires immediately when the intake form is received — no PDF, just a
-    quick heads-up email so pete knows a new clinic has come through.
+    Fires immediately when the intake form is received. Sends a quick
+    heads-up email so pete knows a new clinic has come through, no PDF.
     """
-    if not resend.api_key:
-        logger.error("RESEND_API_KEY not set — cannot send submission notification")
-        return False
-
     clinic_name = submission.get("clinic_name", "Unknown")
     has_ads     = submission.get("has_google_ads") or "Not provided"
     invite      = submission.get("invite_sent") or "Not provided"
 
     if "Yes" in has_ads and invite not in ("skipped", "Not provided", "Not sent"):
-        ads_status = "Running Google Ads - invite sent, audit will follow"
+        ads_status = "Running Google Ads, invite sent, audit will follow"
     elif "Yes" in has_ads:
-        ads_status = "Running Google Ads - invite not yet sent"
+        ads_status = "Running Google Ads, invite not yet sent"
     else:
         ads_status = "Not running Google Ads"
 
@@ -111,18 +151,7 @@ def send_submission_notification(submission: dict) -> bool:
 </div>
 """
 
-    try:
-        resend.Emails.send({
-            "from":    FROM_ADDRESS,
-            "to":      [NOTIFY_EMAIL],
-            "subject": subject,
-            "html":    html,
-        })
-        logger.info(f"Submission notification sent: {subject}")
-        return True
-    except Exception as exc:
-        logger.error(f"Submission notification send failed: {exc}")
-        return False
+    return _send(subject, html, text="")
 
 
 def send_ads_report(
@@ -140,9 +169,9 @@ def send_ads_report(
     draft = generate_prospect_email_draft(clinic_name, ads_data, contact_name=contact_name)
     draft_html = draft.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br/>")
 
-    subject = f"Google Ads Audit Ready — {clinic_name}"
+    subject = f"Google Ads Audit Ready - {clinic_name}"
 
-    # Contact info banner — shown prominently so pete can forward immediately
+    # Contact info banner shown prominently so pete can forward immediately.
     contact_rows = ""
     if contact_name or contact_email:
         if contact_name:
@@ -174,7 +203,7 @@ def send_ads_report(
     {contact_banner}
     <p style="color:#374151;margin:0 0 16px;">
       The full audit PDF is attached. Key findings are also saved to the
-      GHL contact under <strong>Google Ads Intake Form → google_ads_summary</strong>.
+      GHL contact under <strong>Google Ads Intake Form, google_ads_summary</strong>.
     </p>
     <hr style="border:none;border-top:2px solid #D4B22F;margin:20px 0;" />
     <h2 style="font-size:15px;color:#534AB7;margin:0 0 8px;">Draft email to send to the clinic</h2>
@@ -190,8 +219,12 @@ def send_ads_report(
 </div>
 """
 
-    text = f"Google Ads audit for {clinic_name} — PDF attached.\n\nSend to: {contact_name} <{contact_email}>\n\n--- DRAFT EMAIL ---\n\n{draft}"
-    safe = clinic_name.lower().replace(" ","_").replace("/","-")
+    text = (
+        f"Google Ads audit for {clinic_name}. PDF attached.\n\n"
+        f"Send to: {contact_name} <{contact_email}>\n\n"
+        f"--- DRAFT EMAIL ---\n\n{draft}"
+    )
+    safe = clinic_name.lower().replace(" ", "_").replace("/", "-")
     return _send(subject, html, text, pdf_bytes, f"google_ads_audit_{safe}.pdf")
 
 

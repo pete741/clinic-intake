@@ -346,17 +346,17 @@ def _section_visibility(story, styles, data: dict):
 
 def _section_wasted(story, styles, data: dict):
     _spacer(story, 10)
-    conversions_invalid = data.get("conversions_invalid", False)
+    tracking_quality = data.get("tracking_quality", "no_data")
     story.append(Paragraph("3. Wasted Spend - High Cost, Zero Conversions", styles["section"]))
     _rule(story)
 
     keywords = data.get("wasted_keywords", [])
     if not keywords:
-        if conversions_invalid:
+        if tracking_quality == "broken":
             _info_box(story, styles,
                 "⚠ <b>Wasted spend analysis is not available for this account.</b> The recorded "
                 "cost per conversion is under $20, which is not achievable for real patient bookings. "
-                "This means conversion tracking is misconfigured - see Section 6 for details. "
+                "This means conversion tracking is misconfigured, see Section 6 for details. "
                 "Once tracking is fixed, this section will accurately identify keywords burning "
                 "budget without producing patient enquiries.",
                 bg=AMBER_LIGHT, border=AMBER)
@@ -364,6 +364,21 @@ def _section_wasted(story, styles, data: dict):
             story.append(Paragraph("✓ No significant wasted keywords found in this period.", styles["ok"]))
         _spacer(story, 2)
         return
+
+    # In the "uncertain" tier ($20-$50 cost per conversion) the analysis still
+    # runs but is less reliable because some recorded conversions are likely
+    # non-booking events. Tell the prospect that up front so they read the
+    # findings with the right caveat.
+    if tracking_quality == "uncertain":
+        _info_box(story, styles,
+            "⚠ <b>Read these findings with care.</b> The recorded cost per conversion "
+            f"({_fmt_d(data.get('cost_per_conversion', 0))}) is below $50, which suggests the account "
+            "is mixing real patient bookings with non-booking events (button clicks, page scrolls, "
+            "phone reveals). The keywords listed below have non-zero spend and zero recorded "
+            "conversions, so they're worth investigating, but the conversion signal itself is "
+            "partly unreliable. Section 6 covers conversion tracking quality in detail.",
+            bg=AMBER_LIGHT, border=AMBER)
+        _spacer(story, 2)
 
     total = sum(k.get("spend", 0) for k in keywords)
     story.append(Paragraph(
@@ -580,9 +595,40 @@ def _section_conversion(story, styles, data: dict):
     story.append(snap_tbl)
     _spacer(story, 4)
 
-    # Cost per conversion under $20 almost certainly means micro-conversions
-    # (button clicks, page views, phone reveals) not actual patient bookings.
-    suspicious_cpc = 0 < cost_per_conv < 20
+    # Three-tier conversion tracking quality classification:
+    #   broken    (CPA < $20): almost certainly micro-conversions
+    #   uncertain (CPA $20-$50): probably mixing real bookings with non-booking events
+    #   realistic (CPA >= $50): plausible patient acquisition cost
+    tracking_quality = data.get("tracking_quality", "no_data")
+    suspicious_cpc   = tracking_quality == "broken"
+    uncertain_cpc    = tracking_quality == "uncertain"
+
+    if tracking_quality == "broken":
+        cpc_status = "fail"
+        cpc_detail = (
+            f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is under $20. "
+            "In allied health, a genuine patient booking is almost never cheaper than $60 "
+            "to acquire. This strongly suggests the account is recording a micro-conversion, "
+            "such as a button click, phone number reveal, or page scroll, rather than an "
+            "actual enquiry or booking. Google is optimising for these cheap actions, not "
+            "real patients."
+        )
+    elif tracking_quality == "uncertain":
+        cpc_status = "warn"
+        cpc_detail = (
+            f"Cost per conversion is {_fmt_d(cost_per_conv)}, which sits between $20 and $50. "
+            "In allied health, a genuine patient booking typically costs $60+ to acquire. "
+            "A figure in this range usually means the account is mixing some real bookings "
+            "with non-booking events such as button clicks or phone reveals. The conversion "
+            "signal is partly trustworthy but not fully, which limits how aggressively Google "
+            "can optimise toward real patients."
+        )
+    else:
+        cpc_status = "ok"
+        cpc_detail = (
+            f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is within a plausible "
+            "range for allied-health patient acquisition."
+        )
 
     issues = data.get("conversion_issues", [])
     checks = [
@@ -596,19 +642,9 @@ def _section_conversion(story, styles, data: dict):
             ),
         },
         {
-            "check": "Conversion value is realistic for healthcare",
-            "status": "fail" if suspicious_cpc else "ok",
-            "detail": (
-                f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is below $50. "
-                "In healthcare, a genuine patient booking costs far more to acquire. "
-                "This strongly suggests the account is recording a micro-conversion - "
-                "such as a button click, phone number reveal, or page scroll - "
-                "rather than an actual enquiry or booking. "
-                "Google is optimising for these cheap actions, not real patients."
-                if suspicious_cpc else
-                f"Cost per conversion is {_fmt_d(cost_per_conv)}, which is within a plausible "
-                "range for a healthcare patient acquisition."
-            ),
+            "check": "Conversion value is realistic for allied health",
+            "status": cpc_status,
+            "detail": cpc_detail,
         },
         {
             "check": "Conversion rate is plausible",
@@ -631,8 +667,10 @@ def _section_conversion(story, styles, data: dict):
         },
     ]
 
-    # Only show the LTV check if we have LTV data and CPC is not suspicious
-    if _ltv > 0 and not suspicious_cpc:
+    # LTV comparison only meaningful when conversion tracking is realistic.
+    # In broken or uncertain tiers, the CPA itself is unreliable so comparing
+    # it to LTV would mislead.
+    if _ltv > 0 and tracking_quality == "realistic":
         checks.append({
             "check": "Cost per conversion vs lifetime value",
             "status": (
@@ -645,19 +683,30 @@ def _section_conversion(story, styles, data: dict):
                 f"patient LTV of {_fmt_d(_ltv)} "
                 f"({_fmt_d(data.get('avg_appointment_fee', 0))} x {data.get('avg_visits_per_patient', 0)} visits). "
                 f"Target is under 20% of LTV ({_fmt_d(_ltv * 0.20)}). "
-                + ("Healthy - acquisition cost is within target."
+                + ("Healthy, acquisition cost is within target."
                    if cost_per_conv < _ltv * 0.20 else
-                   "Needs attention - acquisition cost exceeds 20% of patient lifetime value.")
+                   "Needs attention, acquisition cost exceeds 20% of patient lifetime value.")
             ),
         })
-    elif _ltv > 0 and suspicious_cpc:
+    elif _ltv > 0 and tracking_quality == "broken":
         checks.append({
             "check": "Cost per conversion vs lifetime value",
             "status": "fail",
             "detail": (
-                f"Cannot assess accurately - the {_fmt_d(cost_per_conv)} cost per conversion "
+                f"Cannot assess accurately. The {_fmt_d(cost_per_conv)} cost per conversion "
                 "is almost certainly a micro-conversion, not a real patient booking. "
                 "Fix conversion tracking first, then re-evaluate against LTV."
+            ),
+        })
+    elif _ltv > 0 and tracking_quality == "uncertain":
+        checks.append({
+            "check": "Cost per conversion vs lifetime value",
+            "status": "warn",
+            "detail": (
+                f"Cannot assess accurately. The {_fmt_d(cost_per_conv)} cost per conversion "
+                f"sits in the uncertain range ($20 to $50) and is likely a mix of real "
+                f"bookings and non-booking events. Once tracking is tightened to count only "
+                f"genuine bookings, this can be compared to the {_fmt_d(_ltv)} LTV target."
             ),
         })
 
@@ -786,9 +835,11 @@ def _section_priorities(story, styles, data: dict):
     wasted       = data.get("wasted_keywords", [])
     irrelevant   = data.get("irrelevant_terms", [])
     qs           = data.get("avg_quality_score", 0)
-    conv_issues      = data.get("total_conversions_90d", 1) == 0
-    _cost_per_conv   = data.get("cost_per_conversion", 0)
-    micro_conversion = 0 < _cost_per_conv < 20
+    conv_issues       = data.get("total_conversions_90d", 1) == 0
+    _cost_per_conv    = data.get("cost_per_conversion", 0)
+    _tracking_quality = data.get("tracking_quality", "no_data")
+    micro_conversion  = _tracking_quality == "broken"
+    uncertain_tracking = _tracking_quality == "uncertain"
     all_paused       = data.get("all_campaigns_paused", False)
     _brand_kws   = data.get("brand_keywords", [])
     _brand_spend = data.get("brand_spend") or sum(k.get("spend",0) for k in _brand_kws)
@@ -816,13 +867,22 @@ def _section_priorities(story, styles, data: dict):
             "Critical"))
 
     if micro_conversion:
-        priorities.append(("🔴", f"Fix conversion tracking - micro-conversion detected ({_fmt_d(_cost_per_conv)}/conv)",
+        priorities.append(("🔴", f"Fix conversion tracking, micro-conversion detected ({_fmt_d(_cost_per_conv)}/conv)",
             f"A cost per conversion of {_fmt_d(_cost_per_conv)} is not achievable for real patient bookings. "
             "The account is recording a low-value action (click, scroll, phone reveal) as a conversion. "
             "Google is optimising for these cheap events instead of actual patient enquiries. "
-            "Go to Tools -> Conversions, identify the action being tracked, and replace it with "
+            "Go to Tools, Conversions, identify the action being tracked, and replace it with "
             "a booking confirmation or genuine form submission.",
             "Critical"))
+    elif uncertain_tracking:
+        priorities.append(("🟠", f"Tighten conversion tracking, mixed signal detected ({_fmt_d(_cost_per_conv)}/conv)",
+            f"A cost per conversion of {_fmt_d(_cost_per_conv)} sits between $20 and $50, below the $60+ "
+            "range typical of real patient acquisitions in allied health. The account is likely counting "
+            "some real bookings but also some non-booking events such as button clicks, page scrolls, "
+            "or phone reveals. Audit the conversion actions in Tools, Conversions and remove anything "
+            "that is not a confirmed booking or completed enquiry, so Google can optimise toward genuine "
+            "patient acquisition.",
+            "High"))
 
     if rank_losers:
         names = ", ".join(c["name"][:30] for c in rank_losers[:2])

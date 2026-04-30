@@ -30,13 +30,37 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# If cost-per-conversion is below this, the account is tracking a micro-event
-# (button click, scroll, phone reveal) not a real patient booking.
-# In that case we ignore conversion counts when assessing wasted spend.
-CONVERSION_VALIDITY_THRESHOLD = 20.0
+# Conversion-tracking quality tiers based on cost per conversion. In allied
+# health, a real patient acquisition almost always costs $60+. The thresholds
+# below are calibrated to that reality and drive how the audit interprets
+# conversion data:
+#
+#   < $20         -> "broken"      micro-conversion (button click, page scroll,
+#                                   phone reveal). Conversion data is unusable;
+#                                   the wasted-spend analysis is suppressed
+#                                   because every keyword would falsely look
+#                                   like it converts.
+#   $20 to $50    -> "uncertain"   probably mixing some real bookings with
+#                                   non-booking events. Wasted-spend analysis
+#                                   still runs but flagged as low-confidence.
+#   >= $50        -> "realistic"   plausible patient acquisition cost. Full
+#                                   confidence in the analysis.
+CONVERSION_BROKEN_THRESHOLD    = 20.0
+CONVERSION_UNCERTAIN_THRESHOLD = 50.0
 
 # Minimum spend to flag a keyword or search term as wasted/irrelevant.
 WASTED_SPEND_THRESHOLD = 20.0
+
+
+def classify_conversion_tracking(cost_per_conversion: float) -> str:
+    """Return 'broken' | 'uncertain' | 'realistic' | 'no_data'."""
+    if not cost_per_conversion or cost_per_conversion <= 0:
+        return "no_data"
+    if cost_per_conversion < CONVERSION_BROKEN_THRESHOLD:
+        return "broken"
+    if cost_per_conversion < CONVERSION_UNCERTAIN_THRESHOLD:
+        return "uncertain"
+    return "realistic"
 
 
 
@@ -680,11 +704,13 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
         if qs > 0:
             quality_scores.append(qs)
 
-    # When cost-per-conversion is implausibly low (< $20), the account is tracking
-    # a micro-event not a real patient booking. In that case wasted spend analysis
-    # is meaningless - return empty list and let the conversion health section explain.
-    conversions_invalid = 0 < cost_per_conversion < CONVERSION_VALIDITY_THRESHOLD
-    if conversions_invalid:
+    # Classify tracking quality by cost per conversion. Drives how we interpret
+    # the conversion data downstream and what the PDF says about it.
+    tracking_quality = classify_conversion_tracking(cost_per_conversion)
+    # Suppress wasted-spend analysis only when tracking is broken outright.
+    # In the "uncertain" tier we still run the analysis but the PDF flags
+    # it as low-confidence so the prospect understands the caveat.
+    if tracking_quality == "broken":
         wasted_keywords = []
     else:
         wasted_keywords = [
@@ -692,6 +718,9 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
             if kw["spend"] > WASTED_SPEND_THRESHOLD and kw["conversions"] == 0
         ]
     wasted_keywords = sorted(wasted_keywords, key=lambda k: k["spend"], reverse=True)
+    # Backward-compat field. True only for the "broken" tier so existing
+    # callers and templates keep working unchanged.
+    conversions_invalid = tracking_quality == "broken"
 
     # Low-QS keywords: rated 1-5 with any spend (QS 0 = unrated, skip those)
     low_qs_keywords = sorted(
@@ -844,6 +873,7 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
         "total_conversions_90d": int(total_conversions),
         "cost_per_conversion": cost_per_conversion,
         "conversions_invalid": conversions_invalid,
+        "tracking_quality": tracking_quality,
         "top_campaigns": top_campaigns,
         "all_campaigns_paused": all_campaigns_paused,
         "wasted_keywords": wasted_keywords[:20],

@@ -119,14 +119,10 @@ async def _check_token_expiry() -> None:
 
 def _send_token_expiry_warning(age_days: int) -> None:
     """Emails pete a warning that the Google Ads token is about to expire."""
-    import resend
-    resend.api_key = os.getenv("RESEND_API_KEY", "")
-    if not resend.api_key:
-        logger.error("Cannot send token warning — RESEND_API_KEY not set")
-        return
+    from emailer import _send
 
     days_left = 7 - age_days
-    subject = f"⚠️ Action needed — Google Ads token expires in {days_left} day(s)"
+    subject = f"Action needed: Google Ads token expires in {days_left} day(s)"
     html = f"""
 <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
   <div style="background:#d97706;padding:14px 20px;border-radius:8px 8px 0 0;">
@@ -153,16 +149,18 @@ def _send_token_expiry_warning(age_days: int) -> None:
   </div>
 </div>
 """
-    try:
-        resend.Emails.send({
-            "from":    "Clinic Mastery <onboarding@resend.dev>",
-            "to":      ["pete@clinicmastery.com"],
-            "subject": subject,
-            "html":    html,
-        })
+    text = (
+        f"Google Ads refresh token is {age_days} days old, "
+        f"will expire in approximately {days_left} day(s).\n\n"
+        f"Run: source /Users/elitepete/clinic-intake/backend/venv/bin/activate && "
+        f"python3 /Users/elitepete/clinic-intake/backend/reauth.py\n\n"
+        f"Then update GOOGLE_ADS_REFRESH_TOKEN and GOOGLE_ADS_TOKEN_REFRESHED_AT "
+        f"in your Render environment variables."
+    )
+    if _send(subject, html, text=text):
         logger.info("Token expiry warning email sent to pete@clinicmastery.com")
-    except Exception as exc:
-        logger.error(f"Failed to send token expiry warning: {exc}")
+    else:
+        logger.error("Failed to send token expiry warning")
 
 
 @app.get("/health")

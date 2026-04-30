@@ -831,7 +831,7 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
                 continue
             if raw.get("spend", 0) < 1 and raw.get("clicks", 0) == 0:
                 continue
-            irrelevant_terms.append({**raw, "reason": f"[Context] {llm_flags[term]}"})
+            irrelevant_terms.append({**raw, "reason": llm_flags[term]})
         irrelevant_terms = sorted(
             irrelevant_terms, key=lambda x: x.get("spend", 0), reverse=True
         )

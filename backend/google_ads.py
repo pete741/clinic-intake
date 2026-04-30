@@ -2,18 +2,18 @@
 Google Ads integration for the clinic intake system.
 
 Responsibilities:
-  1. pull_account_data() — pulls campaign + keyword data for the last 90 days
+  1. pull_account_data() - pulls campaign + keyword data for the last 90 days
                            and returns a summary dict.
-  2. run_ads_report_now() — finds the clinic's Ads account, generates a PDF,
+  2. run_ads_report_now() - finds the clinic's Ads account, generates a PDF,
                             and emails it. Called by poll_worker.py and the
                             /trigger-ads-report admin endpoint.
 
 Credentials (all in .env):
-  GOOGLE_ADS_DEVELOPER_TOKEN  — your developer token
-  GOOGLE_ADS_CLIENT_ID        — OAuth2 client ID
-  GOOGLE_ADS_CLIENT_SECRET    — OAuth2 client secret
-  GOOGLE_ADS_REFRESH_TOKEN    — refresh token for pete@clinicmastery.com
-  GOOGLE_ADS_LOGIN_CUSTOMER_ID — leave blank for no MCC
+  GOOGLE_ADS_DEVELOPER_TOKEN  - your developer token
+  GOOGLE_ADS_CLIENT_ID        - OAuth2 client ID
+  GOOGLE_ADS_CLIENT_SECRET    - OAuth2 client secret
+  GOOGLE_ADS_REFRESH_TOKEN    - refresh token for pete@clinicmastery.com
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID - leave blank for no MCC
 
 The google-ads Python library is configured via a dict rather than a yaml file
 so we don't need to manage a separate config file.
@@ -82,44 +82,438 @@ def _build_google_ads_client():
 
 import re as _re
 
+# UNIVERSAL irrelevance patterns - apply to every clinic regardless of vertical.
+# These are the highest-conversion-impact buckets: a private clinic paying for
+# "bulk bill", "how much", "free", "korean", or "jobs" clicks is bleeding budget
+# at people who will never book at full fee.
 _IRRELEVANT_PATTERNS = [
-    (r'\bjobs?\b|\bcareers?\b|\brecruit\b|\bhiring\b|\bsalary\b|\bwages?\b|\bhow to become\b|\bbecome a\b', "Job/career search — not a patient"),
-    (r'\bcourses?\b|\bdegree\b|\bstudy\b|\buniversity\b|\btafe\b|\btraining\b|\bapprentice|\bcertif', "Education/course search — not a patient"),
-    (r'\bfree\b|\bdiy\b|\byoutube\b|\btutorial\b|\bhow to\b|\bself.?help\b', "Free/DIY search — not a paying patient"),
-    (r'\bdog\b|\bcat\b|\bpet\b|\bvet(erinary)?\b|\banimal\b|\bhorse\b|\bbird\b', "Veterinary/animal — wrong audience"),
-    (r'\breal estate\b|\bproperty\b|\binsurance\b|\baccountant\b|\blawyer\b|\blegal\b|\bfinance\b', "Unrelated industry"),
-    (r'\bshop\b|\bstore\b|\bbuy\b|\bproduct\b|\bequipment\b|\bsupplies\b|\bwholesale\b', "Product purchase — not a patient"),
-    (r'\bvolunteer\b|\binternship\b|\bplacement\b|\bwork experience\b', "Placement/volunteering — not a patient"),
-    (r'\bwikipedia\b|\bnews\b|\bresearch paper\b|\bstatistic\b', "Research/information, not booking intent"),
-    (r'\bdefinition\b|\bwhat is\b|\bmeaning of\b|\bhistory of\b', "Informational query — no booking intent"),
-    (r'\btemplate\b|\bexample\b|\bsample\b|\bform\b', "Template/document search — not a patient"),
+    # Job/career - wrong intent (looking to BECOME a practitioner, not see one).
+    (r'\bjobs?\b|\bcareers?\b|\brecruit\b|\bhiring\b|\bsalary\b|\bwages?\b|\bhow to become\b|\bbecome a\b',
+     "Job/career search - not a patient"),
+    # Education / training - same wrong intent.
+    (r'\bcourses?\b|\bdegree\b|\bstudy\b|\buniversity\b|\btafe\b|\btraining\b|\bapprentice|\bcertif',
+     "Education/course search - not a patient"),
+    # Free / funded / scheme - for a private (non bulk-billing) clinic, every
+    # one of these clicks is from someone shopping for a free or subsidised
+    # alternative. They will not book at private fees.
+    (r'\bfree\b|\bbulk\s*bill\w*\b|\bbulkbill\w*\b|\bmedicare\b|\bno\s*gap\b|\bsubsid\w*\b|\bcentrelink\b|\bgovernment\b',
+     "Free / bulk-bill / subsidised - won't book at private fee"),
+    # Price-shopping / informational - researching cost, not booking.
+    (r'\bhow\s*much\b|\bcost\s*of\b|\bprices?\b|\bfees?\b|\brates?\b|\bpricing\b|\bdoes\s+it\s+cost\b|\bcheap\b|\bcheaper\b|\bcheapest\b|\baffordable\b|\bsliding\s*scale\b|\bdiscount\w*\b|\blow\s*cost\b',
+     "Price-shopping / informational - not booking intent"),
+    # DIY / self-help / research.
+    (r'\bdiy\b|\byoutube\b|\breddit\b|\btiktok\b|\btutorial\b|\bself.?help\b|\bexercises?\b|\bstretches?\b|\bhome\s*remed\w*\b',
+     "DIY / self-help - not a paying patient"),
+    # Language / cultural-specific - unless the clinic explicitly markets to
+    # that community, the searcher is looking for someone else.
+    (r'\bvietnamese\b|\bkorean\b|\bmandarin\b|\bchinese\b|\bcantonese\b|\barabic\b|\bspanish\b|\bjapanese\b|\bhindi\b|\burdu\b|\bturkish\b|\bgreek\b|\bitalian\b|\bportuguese\b|\bfilipino\b|\btagalog\b|\bbilingual\b|\binterpreter\b|\btranslator\b',
+     "Language / culture-specific - looking for a different practitioner"),
+    # Wikipedia / news / research.
+    (r'\bwikipedia\b|\bnews\b|\bresearch paper\b|\bstatistic\b',
+     "Research/information, not booking intent"),
+    # Definitional / informational.
+    (r'\bdefinition\b|\bwhat is\b|\bmeaning of\b|\bhistory of\b|\bsymptoms?\b|\bcauses?\b',
+     "Informational query - no booking intent"),
+    # Templates / forms.
+    (r'\btemplate\b|\bexample\b|\bsample\b|\bform\s+pdf\b',
+     "Template/document search - not a patient"),
+    # Animal / vet - wrong audience entirely.
+    (r'\bdog\b|\bcat\b|\bpet\b|\bvet(erinary)?\b|\banimal\b|\bhorse\b|\bbird\b',
+     "Veterinary/animal - wrong audience"),
+    # Unrelated industries.
+    (r'\breal estate\b|\bproperty\b|\binsurance\b|\baccountant\b|\blawyer\b|\blegal\b|\bfinance\b',
+     "Unrelated industry"),
+    # Product purchases.
+    (r'\bshop\b|\bstore\b|\bbuy\b|\bproduct\b|\bequipment\b|\bsupplies\b|\bwholesale\b',
+     "Product purchase - not a patient"),
+    # Volunteering / placements.
+    (r'\bvolunteer\b|\binternship\b|\bplacement\b|\bwork experience\b',
+     "Placement/volunteering - not a patient"),
 ]
 
+# Per-vertical wrong-profession patterns. These catch the "looks similar but
+# wrong service" searches - e.g. a private psychology clinic paying for
+# "psychiatrist" or "life coach" clicks. Specialty is inferred from clinic name
+# at runtime via _infer_specialty().
+_SPECIALTY_PATTERNS = {
+    "psychology": [
+        (r'\bpsychiatr\w*\b|\blife\s*coach\w*\b|\bsocial\s*work\w*\b|\bmental\s*health\s*nurse\b|\bgeneral\s*practitioner\b|\bhypnotherap\w*\b|\bsomatic\s*(?:therapy|practitioner|healer)\b|\benergy\s*healer\b|\breiki\b|\bkinesiolog\w*\b|\bnaturopath\w*\b|\bspiritual\s*healer\b',
+         "Wrong profession - not a psychologist"),
+    ],
+    "physio": [
+        (r'\bchiropract\w*\b|\bosteopath\w*\b|\bmassage\s*therap\w*\b|\bremedial\s*massag\w*\b|\bacupunctur\w*\b|\bnaturopath\w*\b|\bphysician\b|\bsurgeon\b',
+         "Wrong profession - not a physiotherapist"),
+    ],
+    "chiropractic": [
+        (r'\bphysio\w*\b|\bosteopath\w*\b|\bmassage\s*therap\w*\b|\bsurgeon\b',
+         "Wrong profession - not a chiropractor"),
+    ],
+    "podiatry": [
+        (r'\borthop\w*\b(?!\s*(?:shoes|insole))|\bphysio\w*\b|\bsurgeon\b',
+         "Wrong profession - not a podiatrist"),
+    ],
+    "osteopathy": [
+        (r'\bphysio\w*\b|\bchiropract\w*\b|\bmassage\s*therap\w*\b',
+         "Wrong profession - not an osteopath"),
+    ],
+    "speech": [
+        (r'\bot\b|\boccupational\s*therap\w*\b|\bpsycholog\w*\b',
+         "Wrong profession - not a speech pathologist"),
+    ],
+    "exercise_physiology": [
+        (r'\bpersonal\s*train\w*\b|\bgym\b|\bphysio\w*\b(?!\s*therapist)|\bchiropract\w*\b',
+         "Wrong profession - not an exercise physiologist"),
+    ],
+}
 
-def _classify_irrelevant_terms(terms: list[dict]) -> list[dict]:
+# Map clinic-name keywords to specialty buckets. Mirrors google-ads-intel's
+# config.json specialties dict so cold-audit detection stays consistent with
+# Pete's retained-client classification.
+_SPECIALTY_NAME_HINTS = {
+    "psychology": ["psychology", "psychologist", "counselling", "counsellor",
+                   "therapy", "therapist", "wellbeing", "mood", "mind", "mental"],
+    "physio": ["physiotherapy", "physiotherapist", "physio", "spine", "sports"],
+    "podiatry": ["podiatry", "podiatrist", "pod", "foot"],
+    "chiropractic": ["chiro", "chiropractic", "chiropractor", "spinal"],
+    "osteopathy": ["osteopathy", "osteopath", "osteo"],
+    "speech": ["speech", "speechie", "chatterbox"],
+    "exercise_physiology": ["exercise physiology", "ex physiology", "rehab", "movement", "strength"],
+}
+
+
+def _infer_specialty(clinic_name: str) -> str:
+    """Best-effort specialty inference from the clinic's name.
+
+    Falls back to 'general' when no hints match - in which case only universal
+    irrelevance patterns apply (no wrong-profession rules).
+    """
+    if not clinic_name:
+        return "general"
+    name_lower = clinic_name.lower()
+    for specialty, hints in _SPECIALTY_NAME_HINTS.items():
+        for hint in hints:
+            if hint in name_lower:
+                return specialty
+    return "general"
+
+
+def _classify_irrelevant_terms(terms: list[dict], clinic_name: str = "") -> list[dict]:
     """
     Flags search terms that have spend but are clearly not from potential patients.
-    Uses pattern matching + low-CTR heuristics.
+
+    Two-layer detection:
+      1. Universal patterns + per-specialty wrong-profession patterns (primary).
+         Catches the highest-impact waste regardless of CTR.
+      2. Low-CTR fallback for terms that didn't match a rule but look noisy.
     """
+    specialty = _infer_specialty(clinic_name)
+    patterns = list(_IRRELEVANT_PATTERNS) + list(_SPECIALTY_PATTERNS.get(specialty, []))
+
     flagged = []
     for t in terms:
         term = t.get("term", "").lower()
         spend = t.get("spend", 0)
-        if spend < 5:
+        clicks = t.get("clicks", 0)
+        # Audit threshold: $1+ OR any click. Catches small-but-real waste.
+        if spend < 1 and clicks == 0:
             continue
 
-        for pattern, reason in _IRRELEVANT_PATTERNS:
+        matched = False
+        for pattern, reason in patterns:
             if _re.search(pattern, term, _re.IGNORECASE):
                 flagged.append({**t, "reason": reason})
+                matched = True
                 break
-        else:
-            # Low CTR with meaningful spend: shown to many people, almost all ignored it
-            ctr = t.get("ctr", 0)
-            impressions = t.get("impressions", 0)
-            if spend >= WASTED_SPEND_THRESHOLD and ctr < 0.5 and impressions > 100:
-                flagged.append({**t, "reason": f"Very low CTR ({ctr:.2f}%) — searchers are ignoring these ads"})
+        if matched:
+            continue
+
+        # Low CTR with meaningful spend - shown to many, almost all ignored.
+        ctr = t.get("ctr", 0)
+        impressions = t.get("impressions", 0)
+        if spend >= WASTED_SPEND_THRESHOLD and ctr < 0.5 and impressions > 100:
+            flagged.append({**t, "reason": f"Very low CTR ({ctr:.2f}%) - searchers ignored these ads"})
 
     return sorted(flagged, key=lambda x: x.get("spend", 0), reverse=True)
+
+
+# ── Brand-keyword waste classifier ───────────────────────────────────────────
+
+# Stripped from the clinic name before extracting distinctive brand tokens.
+# Generic words that match thousands of search terms cannot be brand markers.
+_BRAND_STOPWORDS = {
+    "the", "and", "of", "a", "an", "&", "for", "to", "at", "in", "on", "by",
+    "clinic", "clinics", "health", "healthcare", "group", "hub", "centre",
+    "center", "therapy", "therapies", "therapist", "therapists",
+    "physio", "physios", "physiotherapy", "physiotherapist", "physiotherapists",
+    "chiro", "chiropractic", "chiropractor", "chiropractors",
+    "psychology", "psychologist", "psychologists", "psychological",
+    "counselling", "counsellor", "counselors", "counseling",
+    "podiatry", "podiatrist", "podiatrists",
+    "osteopathy", "osteopath", "osteopaths", "osteo",
+    "exercise", "physiology", "physiologist",
+    "speech", "pathology", "pathologist",
+    "rehab", "rehabilitation", "wellness", "wellbeing", "medical", "services",
+    "service", "care", "practice", "allied", "multi", "disciplinary",
+    "studio", "co", "company", "ltd", "pty", "australia", "australian",
+}
+
+
+def _extract_brand_tokens(clinic_name: str) -> list[str]:
+    """Distinctive brand tokens for matching, stripped of clinic-vertical fluff.
+
+    'The Millennial Therapist' → ['millennial']
+    'Apricus Health'           → ['apricus']
+    'Alexandria & Redfern Physiotherapy' → ['alexandria', 'redfern']
+    'Healthcare Wellness Hub'  → ['healthcare', 'wellness', 'hub']  (fallback)
+    """
+    if not clinic_name:
+        return []
+    raw = _re.sub(r"[^\w\s]", " ", clinic_name.lower())
+    tokens = [t for t in raw.split() if t]
+    distinctive = [t for t in tokens if t not in _BRAND_STOPWORDS and len(t) >= 3]
+    if distinctive:
+        return distinctive
+    # All tokens were stopwords - fall back so we don't end up with empty brand list.
+    fallback = [t for t in tokens if t not in _BRAND_STOPWORDS]
+    return fallback or tokens
+
+
+def _classify_branded_terms(terms: list[dict], brand_tokens: list[str]) -> list[dict]:
+    """Returns search terms whose text contains any brand token (whole-word match).
+
+    Branded clicks are recoverable for free via organic + Google Business
+    Profile. Every dollar in this list is wasted ad spend on existing demand.
+    """
+    if not brand_tokens:
+        return []
+    branded = []
+    for t in terms:
+        term_text = (t.get("term") or "").lower()
+        if not term_text:
+            continue
+        for tok in brand_tokens:
+            if _re.search(rf"\b{_re.escape(tok)}\b", term_text):
+                branded.append({**t, "matched_brand_tokens": [tok]})
+                break
+    return sorted(branded, key=lambda x: x.get("spend", 0), reverse=True)
+
+
+# ── LLM contextual classifier ────────────────────────────────────────────────
+
+# Sonnet is the right tier - Haiku misses nuance on clinical-context calls
+# (e.g. "is somatic therapy in-scope for THIS clinic?"), Opus is overkill at
+# 5x the cost. Claude 4.6 is the latest Sonnet at time of writing.
+LLM_CLASSIFIER_MODEL = "claude-sonnet-4-6"
+# CLI fallback (local dev only) is highly variable, ~30-180s. SDK path on Render
+# typically ~10-20s. Set generously; the audit is async anyway.
+LLM_CLASSIFIER_TIMEOUT = 240
+LLM_MAX_TERMS_PER_CALL = 100  # truncate top-by-spend if more terms exist
+
+
+def _find_claude_cli() -> str:
+    """Locate the Claude CLI for local-dev fallback when ANTHROPIC_API_KEY is unset.
+
+    On Render this returns "" - the CLI isn't installed in the production image,
+    so the SDK path is the only one available. ANTHROPIC_API_KEY must be set
+    in Render env vars.
+    """
+    for path in ("/Users/elitepete/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"):
+        if os.path.exists(path):
+            return path
+    return ""
+
+
+def _build_ad_copy_themes(ad_copy: list[dict]) -> list[str]:
+    """Flatten RSA headlines/descriptions into a deduplicated list of phrases.
+
+    The LLM uses these as the canonical "what this clinic advertises" signal.
+    Capped at 30 to keep prompt size manageable.
+    """
+    seen = set()
+    themes = []
+    for ad in ad_copy:
+        for line in (ad.get("headlines") or []) + (ad.get("descriptions") or []):
+            line = (line or "").strip()
+            if not line or line.lower() in seen:
+                continue
+            seen.add(line.lower())
+            themes.append(line)
+            if len(themes) >= 30:
+                return themes
+    return themes
+
+
+def _llm_classify_search_terms(
+    clinic_name: str,
+    specialty: str,
+    ad_copy_themes: list[str],
+    ad_group_names: list[str],
+    search_terms: list[dict],
+    already_flagged_terms: set[str],
+) -> dict[str, str]:
+    """Ask Claude to flag context-irrelevant search terms the rule library missed.
+
+    Returns {term: reason} for terms judged IRRELEVANT by the LLM. Only sends
+    terms not already flagged by the rule library, so the LLM focuses on
+    contextual nuance (e.g. "EMDR therapy" when the clinic doesn't offer it)
+    rather than re-finding things rules already caught.
+
+    Graceful degradation:
+      - Missing ANTHROPIC_API_KEY → return empty (rule library is the floor)
+      - SDK import failure → return empty
+      - API call failure / timeout → return empty
+      - Malformed JSON response → return empty
+
+    Never raises - the audit must always succeed even if the LLM is down.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    cli_path = os.getenv("CLAUDE_CLI_PATH", "").strip() or _find_claude_cli()
+    use_cli_fallback = (not api_key) and bool(cli_path)
+
+    if not api_key and not use_cli_fallback:
+        logger.warning(
+            "Neither ANTHROPIC_API_KEY nor a usable Claude CLI found - skipping "
+            "LLM contextual classification (rule library is the only irrelevance signal)"
+        )
+        return {}
+
+    candidates = [t for t in search_terms if t.get("term") and t["term"] not in already_flagged_terms]
+    if not candidates:
+        return {}
+
+    candidates = sorted(candidates, key=lambda t: t.get("spend", 0), reverse=True)[:LLM_MAX_TERMS_PER_CALL]
+
+    if not use_cli_fallback:
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            logger.warning("anthropic SDK not installed - skipping LLM classification")
+            return {}
+
+    ad_copy_str = " | ".join(ad_copy_themes) if ad_copy_themes else "(no ad copy available)"
+    ad_groups_str = ", ".join(ad_group_names) if ad_group_names else "(no ad group structure available)"
+    terms_block = "\n".join(f'{i+1}. "{t["term"]}"' for i, t in enumerate(candidates))
+
+    system_prompt = (
+        "You are an expert Google Ads auditor for healthcare clinics. Your job is "
+        "to read the clinic's actual ad copy, infer what services they offer, then "
+        "judge whether each search term aligns with that scope.\n\n"
+        "Rules:\n"
+        "- Mark IRRELEVANT only when the term clearly does not match the clinic's "
+        "  apparent service scope, target profession, demographic, or fee structure.\n"
+        "- When in doubt, mark RELEVANT. False positives hurt more than misses.\n"
+        "- Reasons must be specific and short (max 12 words).\n"
+        "- HARD WRITING RULE: NEVER use em dashes in reasons or anywhere else. "
+        "Use a hyphen (-), comma, period, or parentheses instead. Em dashes are "
+        "forbidden in this brand's copy and will cause the audit to be rejected.\n"
+        "- Examples of contextual irrelevance:\n"
+        "  - Wrong profession (psychiatrist vs psychology)\n"
+        "  - Modality not in ad copy (e.g. EMDR if no EMDR mention anywhere)\n"
+        "  - Demographic mismatch (child therapy if clinic only mentions adults)\n"
+        "  - Funded or free seekers when clinic ad copy implies private fee\n"
+        "  - Geographic mismatch (suburb the clinic does not service)\n"
+        "  - Out-of-scope conditions (eating disorders if clinic only does anxiety or depression)\n\n"
+        "Return ONLY a JSON array. No markdown, no preamble. Format:\n"
+        '[{"term": "...", "verdict": "irrelevant", "reason": "..."},'
+        ' {"term": "...", "verdict": "relevant"}]'
+    )
+
+    user_prompt = (
+        f"CLINIC: {clinic_name}\n"
+        f"INFERRED SPECIALTY: {specialty}\n"
+        f"AD COPY (what they advertise): {ad_copy_str}\n"
+        f"AD GROUP NAMES: {ad_groups_str}\n\n"
+        f"SEARCH TERMS (judge each one):\n{terms_block}\n\n"
+        "Return the JSON array now."
+    )
+
+    text = ""
+    if use_cli_fallback:
+        # Local-dev fallback: shell out to the Claude CLI using Pete's existing
+        # OAuth session. This path is only used when ANTHROPIC_API_KEY isn't set.
+        # Render production must use the SDK path with an API key.
+        import subprocess
+        env = {
+            "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/Users/elitepete/.local/bin",
+            "HOME": os.environ.get("HOME", "/Users/elitepete"),
+            "USER": os.environ.get("USER", "elitepete"),
+            "TERM": "dumb",
+            "LANG": os.environ.get("LANG", "en_AU.UTF-8"),
+            "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000",
+        }
+        if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+        try:
+            proc = subprocess.run(
+                [
+                    cli_path, "-p", user_prompt,
+                    "--model", "sonnet",
+                    "--system-prompt", system_prompt,
+                    "--tools", "",
+                    "--disable-slash-commands",
+                    "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                ],
+                capture_output=True, text=True, timeout=LLM_CLASSIFIER_TIMEOUT,
+                stdin=subprocess.DEVNULL, env=env,
+            )
+            if proc.returncode != 0:
+                logger.warning("Claude CLI failed (rc=%d): %s",
+                               proc.returncode, (proc.stderr or proc.stdout)[:200])
+                return {}
+            text = (proc.stdout or "").strip()
+            logger.info("LLM classifier used CLI fallback (no ANTHROPIC_API_KEY)")
+        except subprocess.TimeoutExpired:
+            logger.warning("Claude CLI timed out after %ds", LLM_CLASSIFIER_TIMEOUT)
+            return {}
+        except Exception as exc:
+            logger.warning("Claude CLI invocation failed: %s", exc)
+            return {}
+    else:
+        try:
+            client = Anthropic(api_key=api_key, timeout=LLM_CLASSIFIER_TIMEOUT)
+            msg = client.messages.create(
+                model=LLM_CLASSIFIER_MODEL,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            text = "".join(
+                block.text for block in msg.content if getattr(block, "type", "") == "text"
+            ).strip()
+        except Exception as exc:
+            logger.warning(f"LLM classifier SDK call failed: {exc}")
+            return {}
+
+    if text.startswith("```"):
+        # Strip fenced code block if Claude wrapped the JSON.
+        text = "\n".join(line for line in text.splitlines() if not line.startswith("```")).strip()
+
+    import json as _json
+    try:
+        verdicts = _json.loads(text)
+    except _json.JSONDecodeError as exc:
+        logger.warning(f"LLM returned non-JSON ({exc}); head={text[:200]!r}")
+        return {}
+
+    if not isinstance(verdicts, list):
+        logger.warning(f"LLM returned non-list: {type(verdicts).__name__}")
+        return {}
+
+    irrelevant = {}
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        if v.get("verdict") == "irrelevant" and v.get("term"):
+            reason = v.get("reason") or "Outside clinic's apparent service scope"
+            # Strip em dashes defensively. The system prompt forbids them but
+            # if Claude slips, the PDF must not show them.
+            reason = reason.replace("—", "-").replace("–", "-")
+            irrelevant[v["term"]] = reason
+    logger.info(
+        "LLM classifier reviewed %d candidate terms, flagged %d as irrelevant",
+        len(candidates), len(irrelevant),
+    )
+    return irrelevant
 
 
 # ── Account discovery ─────────────────────────────────────────────────────────
@@ -133,7 +527,7 @@ def _get_accessible_customer_ids(client) -> list[str]:
     """
     customer_service = client.get_service("CustomerService")
     accessible = customer_service.list_accessible_customers()
-    # Returns strings like "customers/1234567890" — extract just the ID
+    # Returns strings like "customers/1234567890" - extract just the ID
     return [r.split("/")[-1] for r in accessible.resource_names]
 
 
@@ -152,24 +546,31 @@ def _get_account_name(client, customer_id: str) -> str:
 
 # ── Data pull ─────────────────────────────────────────────────────────────────
 
-def pull_account_data(customer_id: str) -> dict:
+def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
     """
     Pulls the last 90 days of campaign and keyword data for the given account.
 
+    Args:
+        customer_id: Google Ads customer ID (no dashes).
+        clinic_name: Used to extract brand tokens for the brand-waste classifier
+                     and to infer the clinic specialty for the irrelevance rules.
+                     If empty, brand detection is skipped and only universal
+                     irrelevance patterns apply.
+
     Returns a summary dict with:
-      - total_spend_90d
-      - total_conversions_90d
-      - cost_per_conversion
+      - total_spend_90d, total_conversions_90d, cost_per_conversion
       - top_campaigns (list of {name, spend, conversions})
-      - wasted_keywords (keywords with spend > $50 and 0 conversions)
-      - avg_quality_score
-      - num_active_campaigns
+      - wasted_keywords (keywords with spend > threshold and 0 conversions)
+      - low_qs_keywords
+      - irrelevant_terms (now using expanded rule library)
+      - brand_keywords, brand_spend, non_brand_spend (NEW - drives PDF section 5)
+      - avg_quality_score, num_active_campaigns
     """
     from datetime import timedelta
     client = _build_google_ads_client()
     ga_service = client.get_service("GoogleAdsService")
 
-    # GAQL doesn't support LAST_90_DAYS — use explicit date range
+    # GAQL doesn't support LAST_90_DAYS - use explicit date range
     today = datetime.now(timezone.utc).date()
     start_date = (today - timedelta(days=90)).strftime("%Y-%m-%d")
     end_date = today.strftime("%Y-%m-%d")
@@ -281,7 +682,7 @@ def pull_account_data(customer_id: str) -> dict:
 
     # When cost-per-conversion is implausibly low (< $20), the account is tracking
     # a micro-event not a real patient booking. In that case wasted spend analysis
-    # is meaningless — return empty list and let the conversion health section explain.
+    # is meaningless - return empty list and let the conversion health section explain.
     conversions_invalid = 0 < cost_per_conversion < CONVERSION_VALIDITY_THRESHOLD
     if conversions_invalid:
         wasted_keywords = []
@@ -309,6 +710,50 @@ def pull_account_data(customer_id: str) -> dict:
         bool(all_spend_campaigns)
         and all(c["status"] == "PAUSED" for c in all_spend_campaigns)
     )
+
+    # ── Ad copy (RSA headlines/descriptions) ──────────────────────────────────
+    # Used as context for the LLM contextual classifier - what the clinic
+    # actually advertises is the strongest available signal for what's
+    # in-scope vs out-of-scope when judging search terms.
+    ad_copy_query = f"""
+        SELECT
+            ad_group.name,
+            ad_group_ad.ad.responsive_search_ad.headlines,
+            ad_group_ad.ad.responsive_search_ad.descriptions,
+            metrics.impressions
+        FROM ad_group_ad
+        WHERE {date_filter}
+            AND ad_group_ad.status != 'REMOVED'
+        ORDER BY metrics.impressions DESC
+        LIMIT 30
+    """
+    ad_copy = []
+    ad_group_name_set = set()
+    try:
+        ad_response = ga_service.search(customer_id=customer_id, query=ad_copy_query)
+        for row in ad_response:
+            headlines, descriptions = [], []
+            try:
+                for h in row.ad_group_ad.ad.responsive_search_ad.headlines:
+                    if h.text:
+                        headlines.append(h.text)
+                for d in row.ad_group_ad.ad.responsive_search_ad.descriptions:
+                    if d.text:
+                        descriptions.append(d.text)
+            except Exception:
+                pass
+            if not headlines and not descriptions:
+                continue
+            ag_name = row.ad_group.name
+            ad_group_name_set.add(ag_name)
+            ad_copy.append({
+                "ad_group": ag_name,
+                "headlines": headlines,
+                "descriptions": descriptions,
+            })
+    except Exception as exc:
+        logger.warning(f"Ad copy query failed: {exc}")
+    ad_group_names = sorted(ad_group_name_set)
 
     # ── Search term report ────────────────────────────────────────────────────
     search_term_query = f"""
@@ -340,10 +785,60 @@ def pull_account_data(customer_id: str) -> dict:
     except Exception as exc:
         logger.warning(f"Search term query failed: {exc}")
 
-    irrelevant_terms = _classify_irrelevant_terms(raw_terms)
+    # Layer 1: rule-library + CTR fallback. Fast, deterministic, catches the
+    # universal patterns (free/medicare/jobs/language) and per-vertical
+    # wrong-profession buckets.
+    irrelevant_terms = _classify_irrelevant_terms(raw_terms, clinic_name=clinic_name)
+
+    # Brand-keyword waste - drives PDF section 5. Branded search terms are
+    # recoverable for free via organic + Google Business Profile, so every
+    # dollar here is wasted ad spend on existing demand. The PDF section was
+    # already in the template waiting for these fields; previously they were
+    # always missing so the section rendered $0 brand spend.
+    brand_tokens = _extract_brand_tokens(clinic_name)
+    branded_terms = _classify_branded_terms(raw_terms, brand_tokens)
+    brand_spend = round(sum(t.get("spend", 0) for t in branded_terms), 2)
+    non_brand_spend = round(max(total_spend - brand_spend, 0), 2)
+
+    # Layer 2: LLM contextual classifier. Reads the clinic's actual ad copy
+    # and judges each remaining search term against the clinic's apparent
+    # service scope. Catches things rules can't reach: modality mismatches
+    # (EMDR when not offered), demographic mismatches (child when adult-only),
+    # geographic mismatches, condition out-of-scope, etc.
+    #
+    # Skip terms already flagged by the rule library OR the brand classifier
+    # so the LLM focuses on contextual nuance only. Branded terms are also
+    # excluded - they get their own dedicated PDF section.
+    specialty = _infer_specialty(clinic_name)
+    ad_copy_themes = _build_ad_copy_themes(ad_copy)
+    already_flagged = (
+        {t["term"] for t in irrelevant_terms}
+        | {t["term"] for t in branded_terms}
+    )
+    llm_flags = _llm_classify_search_terms(
+        clinic_name=clinic_name,
+        specialty=specialty,
+        ad_copy_themes=ad_copy_themes,
+        ad_group_names=ad_group_names,
+        search_terms=raw_terms,
+        already_flagged_terms=already_flagged,
+    )
+    if llm_flags:
+        # Only flag terms with non-trivial spend so the audit stays signal-rich.
+        for raw in raw_terms:
+            term = raw.get("term", "")
+            if term not in llm_flags:
+                continue
+            if raw.get("spend", 0) < 1 and raw.get("clicks", 0) == 0:
+                continue
+            irrelevant_terms.append({**raw, "reason": f"[Context] {llm_flags[term]}"})
+        irrelevant_terms = sorted(
+            irrelevant_terms, key=lambda x: x.get("spend", 0), reverse=True
+        )
 
     return {
         "customer_id": customer_id,
+        "clinic_name": clinic_name,
         "pulled_at": datetime.now(timezone.utc).isoformat(),
         "total_spend_90d": round(total_spend, 2),
         "total_conversions_90d": int(total_conversions),
@@ -356,6 +851,13 @@ def pull_account_data(customer_id: str) -> dict:
         "avg_quality_score": avg_quality_score,
         "num_active_campaigns": num_active,
         "irrelevant_terms": irrelevant_terms[:30],
+        "brand_keywords": branded_terms[:30],
+        "brand_spend": brand_spend,
+        "non_brand_spend": non_brand_spend,
+        "brand_tokens": brand_tokens,
+        "specialty": specialty,
+        "ad_copy": ad_copy,
+        "ad_group_names": ad_group_names,
     }
 
 
@@ -370,7 +872,7 @@ async def run_ads_report_now(
 ) -> dict:
     """
     Immediately attempts to find the clinic's Google Ads account and generate
-    the report — no polling loop, no waiting.
+    the report - no polling loop, no waiting.
 
     Returns {"status": "success", "customer_id": ...} or {"status": "error", "detail": ...}.
     Called by the /trigger-ads-report admin endpoint.
@@ -415,8 +917,9 @@ async def run_ads_report_now(
                     "accounts_checked": list(account_names.values()),
                 }
 
-        # Pull full account data
-        summary = pull_account_data(matched_id)
+        # Pull full account data - clinic_name is required for brand-keyword
+        # detection and specialty inference (drives the irrelevance rules).
+        summary = pull_account_data(matched_id, clinic_name=clinic_name)
 
         # Write snapshot to GHL
         wasted_total = sum(k.get("spend", 0) for k in summary.get("wasted_keywords", []))

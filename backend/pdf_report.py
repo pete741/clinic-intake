@@ -356,7 +356,7 @@ def _section_wasted(story, styles, data: dict):
             _info_box(story, styles,
                 "⚠ <b>Wasted spend analysis is not available for this account.</b> The recorded "
                 "cost per conversion is under $20, which is not achievable for real patient bookings. "
-                "This means conversion tracking is misconfigured — see Section 6 for details. "
+                "This means conversion tracking is misconfigured - see Section 6 for details. "
                 "Once tracking is fixed, this section will accurately identify keywords burning "
                 "budget without producing patient enquiries.",
                 bg=AMBER_LIGHT, border=AMBER)
@@ -503,6 +503,36 @@ def _section_brand(story, styles, data: dict):
             "brand campaign - would redirect this spend toward genuine patient acquisition. "
             "Your conversion rate will drop, but your <i>real</i> cost per new patient will improve.",
             bg=RED_LIGHT, border=RED_WARN)
+
+    # List the specific branded search terms - this is the most persuasive part
+    # of the brand-waste finding. Showing the prospect "these exact searches
+    # cost you $X" is far more compelling than an aggregate dollar figure.
+    if brand_kws:
+        _spacer(story, 4)
+        story.append(Paragraph("Specific branded searches you paid for:", styles["body_bold"]))
+        _spacer(story, 2)
+        rows = [["Search Term", "Spend", "Clicks", "Why It's Wasted"]]
+        for k in brand_kws[:15]:
+            rows.append([
+                Paragraph(k.get("term", k.get("keyword", "")), styles["body"]),
+                _fmt_d(k.get("spend", 0)),
+                _fmt_i(k.get("clicks", 0)),
+                Paragraph(
+                    "Branded search - searcher already knew the clinic. "
+                    "Would have landed via organic / Google Business Profile at $0 cost.",
+                    styles["small"],
+                ),
+            ])
+        col_w = [55*mm, 18*mm, 14*mm, 87*mm]
+        tbl = Table(rows, colWidths=col_w, repeatRows=1)
+        tbl.setStyle(_tbl_style(header_bg=RED_WARN, stripe=RED_LIGHT))
+        story.append(tbl)
+        _info_box(story, styles,
+            "💡 <b>Fix:</b> Add the clinic name and obvious brand variants as "
+            "<b>exact-match negative keywords</b> at the account level. Branded "
+            "searches will continue to land on the website via organic results "
+            "and Google Business Profile at zero ad cost.",
+            bg=AMBER_LIGHT, border=AMBER)
 
 
 def _section_conversion(story, styles, data: dict):
@@ -1378,7 +1408,7 @@ def generate_intake_brief(submission: dict) -> bytes:
 
     ad_spend   = float(submission.get("monthly_ad_spend", 0) or 0)
     # Budget split guidance: 70% location/core, 30% condition/symptom
-    # Note: remarketing is excluded — Google restricts healthcare remarketing
+    # Note: remarketing is excluded - Google restricts healthcare remarketing
     budget_core  = ad_spend * 0.70 if ad_spend else None
     budget_cond  = ad_spend * 0.30 if ad_spend else None
 

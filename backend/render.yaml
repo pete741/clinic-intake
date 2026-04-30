@@ -29,6 +29,8 @@ services:
         sync: false
       - key: GOOGLE_ADS_TOKEN_REFRESHED_AT
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
 
   - type: cron
     name: clinic-intake-poll-worker
@@ -57,4 +59,6 @@ services:
       - key: SENTRY_DSN
         sync: false
       - key: GOOGLE_ADS_TOKEN_REFRESHED_AT
+        sync: false
+      - key: ANTHROPIC_API_KEY
         sync: false

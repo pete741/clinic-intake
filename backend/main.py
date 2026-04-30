@@ -93,74 +93,98 @@ def _send_intake_brief_task(clinic_name: str, submission_dict: dict) -> None:
         logger.error(f"Intake brief task failed for {clinic_name}: {exc}")
 
 
+def _is_google_ads_token_valid() -> bool:
+    """
+    Validates the Google Ads refresh token by attempting to mint an access
+    token. Returns True if Google accepted the token, False otherwise.
+
+    This replaces age-based expiry checks. Once the OAuth app is in
+    Production status (verified or not), refresh tokens issued by it do not
+    expire on a 7-day cycle, so age is no longer a useful proxy. Actual
+    minting is the only reliable signal.
+    """
+    client_id     = os.getenv("GOOGLE_ADS_CLIENT_ID", "")
+    client_secret = os.getenv("GOOGLE_ADS_CLIENT_SECRET", "")
+    refresh_token = os.getenv("GOOGLE_ADS_REFRESH_TOKEN", "")
+    if not all([client_id, client_secret, refresh_token]):
+        logger.warning("Google Ads OAuth env vars not all set, treating as invalid")
+        return False
+    try:
+        import httpx
+        with httpx.Client(timeout=15) as c:
+            r = c.post("https://oauth2.googleapis.com/token", data={
+                "client_id":     client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type":    "refresh_token",
+            })
+        if r.status_code == 200:
+            return True
+        logger.warning(f"Google Ads token validation rejected (status={r.status_code}): {r.text[:200]}")
+        return False
+    except Exception as exc:
+        # Transient network errors are NOT a validity signal. Log but do not
+        # fire the warning email, otherwise a flaky network triggers spam.
+        logger.warning(f"Google Ads token validation network error (treating as still valid): {exc}")
+        return True
+
+
 async def _check_token_expiry() -> None:
     """
-    Checks how old the Google Ads refresh token is.
-    If >= 5 days old, emails pete a warning to re-run reauth.py before it expires.
-    Runs once on startup — Render redeploys at least weekly so this fires regularly.
+    Validates the Google Ads refresh token. If validation fails, emails pete
+    a warning to re-run reauth.py. Runs once on startup, also called by
+    /token-health daily.
     """
-    refreshed_at_str = os.getenv("GOOGLE_ADS_TOKEN_REFRESHED_AT", "")
-    if not refreshed_at_str:
-        logger.warning("GOOGLE_ADS_TOKEN_REFRESHED_AT not set — cannot check token age")
-        return
-
-    try:
-        from datetime import datetime, timezone
-        refreshed_at = datetime.fromisoformat(refreshed_at_str)
-        age_days = (datetime.now(timezone.utc) - refreshed_at).days
-        logger.info(f"Google Ads token age: {age_days} day(s)")
-
-        if age_days >= 5:
-            logger.warning(f"Google Ads token is {age_days} days old — sending expiry warning")
-            _send_token_expiry_warning(age_days)
-    except Exception as exc:
-        logger.error(f"Token expiry check failed: {exc}")
+    if _is_google_ads_token_valid():
+        logger.info("Google Ads refresh token validated OK")
+    else:
+        logger.warning("Google Ads refresh token failed validation, sending warning")
+        _send_token_expiry_warning()
 
 
-def _send_token_expiry_warning(age_days: int) -> None:
-    """Emails pete a warning that the Google Ads token is about to expire."""
+def _send_token_expiry_warning() -> None:
+    """Emails pete a warning that the Google Ads token failed validation."""
     from emailer import _send
 
-    days_left = 7 - age_days
-    subject = f"Action needed: Google Ads token expires in {days_left} day(s)"
-    html = f"""
+    subject = "Action needed: Google Ads refresh token failed validation"
+    html = """
 <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-  <div style="background:#d97706;padding:14px 20px;border-radius:8px 8px 0 0;">
-    <h2 style="color:#fff;margin:0;font-size:16px;">Google Ads Token Expiring Soon</h2>
+  <div style="background:#dc2626;padding:14px 20px;border-radius:8px 8px 0 0;">
+    <h2 style="color:#fff;margin:0;font-size:16px;">Google Ads Token Failed Validation</h2>
   </div>
-  <div style="background:#fffbeb;border:1px solid #fcd34d;border-top:none;
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-top:none;
               padding:20px;border-radius:0 0 8px 8px;">
     <p style="color:#374151;margin:0 0 12px;">
-      Your Google Ads refresh token is <strong>{age_days} days old</strong> and will
-      expire in approximately <strong>{days_left} day(s)</strong>.
+      Google rejected the configured refresh token when validated just now.
+      The cold-audit pipeline cannot pull Google Ads data until this is fixed.
     </p>
     <p style="color:#374151;margin:0 0 12px;">
-      Run this command now to refresh it (takes 30 seconds):
+      Run this command to mint a fresh token (takes 30 seconds):
     </p>
     <div style="background:#1a1a2e;border-radius:6px;padding:12px 16px;
                 font-family:monospace;font-size:13px;color:#a5f3fc;">
-      source /Users/elitepete/clinic-intake/backend/venv/bin/activate &&
+      source /Users/elitepete/clinic-intake/backend/venv/bin/activate &amp;&amp;
       python3 /Users/elitepete/clinic-intake/backend/reauth.py
     </div>
     <p style="color:#6b7280;font-size:12px;margin:12px 0 0;">
       After running, update GOOGLE_ADS_REFRESH_TOKEN and
-      GOOGLE_ADS_TOKEN_REFRESHED_AT in your Render environment variables.
+      GOOGLE_ADS_TOKEN_REFRESHED_AT in Render environment variables.
     </p>
   </div>
 </div>
 """
     text = (
-        f"Google Ads refresh token is {age_days} days old, "
-        f"will expire in approximately {days_left} day(s).\n\n"
-        f"Run: source /Users/elitepete/clinic-intake/backend/venv/bin/activate && "
-        f"python3 /Users/elitepete/clinic-intake/backend/reauth.py\n\n"
-        f"Then update GOOGLE_ADS_REFRESH_TOKEN and GOOGLE_ADS_TOKEN_REFRESHED_AT "
-        f"in your Render environment variables."
+        "Google rejected the configured refresh token when validated. "
+        "The cold-audit pipeline is offline until this is fixed.\n\n"
+        "Run: source /Users/elitepete/clinic-intake/backend/venv/bin/activate && "
+        "python3 /Users/elitepete/clinic-intake/backend/reauth.py\n\n"
+        "Then update GOOGLE_ADS_REFRESH_TOKEN and GOOGLE_ADS_TOKEN_REFRESHED_AT "
+        "in Render environment variables."
     )
     if _send(subject, html, text=text):
-        logger.info("Token expiry warning email sent to pete@clinicmastery.com")
+        logger.info("Token validation warning email sent to pete@clinicmastery.com")
     else:
-        logger.error("Failed to send token expiry warning")
+        logger.error("Failed to send token validation warning")
 
 
 @app.get("/health")
@@ -172,27 +196,29 @@ async def health():
 @app.get("/token-health")
 async def token_health():
     """
-    Returns the age and status of the Google Ads refresh token.
-    Called by UptimeRobot daily to trigger the expiry check.
+    Validates the Google Ads refresh token by attempting to mint an access
+    token. Called by UptimeRobot daily. Sends pete a warning email only if
+    Google rejects the token (no more age-based false alarms).
     """
-    refreshed_at_str = os.getenv("GOOGLE_ADS_TOKEN_REFRESHED_AT", "")
-    if not refreshed_at_str:
-        return {"status": "unknown", "message": "GOOGLE_ADS_TOKEN_REFRESHED_AT not set"}
-
     from datetime import datetime, timezone
-    refreshed_at = datetime.fromisoformat(refreshed_at_str)
-    age_days = (datetime.now(timezone.utc) - refreshed_at).days
-    days_left = max(0, 7 - age_days)
-    status = "ok" if days_left > 2 else "warning" if days_left > 0 else "expired"
 
-    if status in ("warning", "expired"):
-        _send_token_expiry_warning(age_days)
+    refreshed_at_str = os.getenv("GOOGLE_ADS_TOKEN_REFRESHED_AT", "")
+    age_days = None
+    if refreshed_at_str:
+        try:
+            refreshed_at = datetime.fromisoformat(refreshed_at_str)
+            age_days = (datetime.now(timezone.utc) - refreshed_at).days
+        except Exception:
+            pass
+
+    is_valid = _is_google_ads_token_valid()
+    if not is_valid:
+        _send_token_expiry_warning()
 
     return {
-        "status": status,
+        "status":         "ok" if is_valid else "invalid",
         "token_age_days": age_days,
-        "days_until_expiry": days_left,
-        "refreshed_at": refreshed_at_str,
+        "refreshed_at":   refreshed_at_str or None,
     }
 
 

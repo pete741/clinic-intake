@@ -293,6 +293,30 @@ async def create_or_update_contact(
                 headers=_headers(),
                 json=update_payload,
             )
+
+            # GHL may reject with 400 "duplicated contacts" when the phone search
+            # returns contact A but the email already belongs to contact B.
+            # The error body includes meta.contactId pointing to the correct contact.
+            if resp.status_code == 400:
+                try:
+                    err = resp.json()
+                    if "duplicated" in err.get("message", "").lower():
+                        canonical_id = err.get("meta", {}).get("contactId")
+                        if canonical_id and canonical_id != contact_id:
+                            logger.warning(
+                                f"Phone→{contact_id} and email→{canonical_id} belong to "
+                                f"different contacts. Retrying PUT against canonical contact."
+                            )
+                            resp = await _request_with_retry(
+                                client, "PUT",
+                                f"{BASE_URL}/contacts/{canonical_id}",
+                                headers=_headers(),
+                                json=update_payload,
+                            )
+                            contact_id = canonical_id
+                except Exception as exc:
+                    logger.warning(f"Could not parse duplicate-contact error: {exc}")
+
             if resp.status_code not in (200, 201):
                 logger.error(
                     f"Failed to update GHL contact {contact_id}: {resp.status_code} - {resp.text}"

@@ -307,11 +307,14 @@ async def create_or_update_contact(
                                 f"Phone→{contact_id} and email→{canonical_id} belong to "
                                 f"different contacts. Retrying PUT against canonical contact."
                             )
+                            # Strip phone — it belongs to the other contact and would
+                            # trigger a second duplicate rejection on the canonical contact.
+                            retry_payload = {k: v for k, v in update_payload.items() if k != "phone"}
                             resp = await _request_with_retry(
                                 client, "PUT",
                                 f"{BASE_URL}/contacts/{canonical_id}",
                                 headers=_headers(),
-                                json=update_payload,
+                                json=retry_payload,
                             )
                             contact_id = canonical_id
                 except Exception as exc:

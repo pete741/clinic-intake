@@ -306,13 +306,13 @@ async def create_or_update_contact(
             logger.info(f"Updated existing GHL contact {contact_id} for {submission.clinic_name}")
             return contact_id
 
-        # 3. New contact: create via upsert with full payload
+        # 3. New contact: upsert without tags or source so that if GHL internally
+        # matches an existing contact, we never overwrite their tag list or
+        # reset their contact type. Tags are always added additively below.
         create_payload = {
             "locationId": GHL_LOCATION_ID,
             "name": submission.clinic_name,
             "email": submission.email,
-            "tags": new_tags,
-            "source": "Intake Form",
             "customFields": custom_fields,
         }
         if submission.phone:
@@ -335,6 +335,11 @@ async def create_or_update_contact(
             or data.get("id")
         )
         logger.info(f"Created new GHL contact {contact_id} for {submission.clinic_name}")
+
+        # Add intake tags additively — safe for new and existing contacts alike
+        for tag in new_tags:
+            await _add_tag_with_client(client, contact_id, tag)
+
         return contact_id
 
 

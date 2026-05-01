@@ -235,11 +235,14 @@ async def create_or_update_contact(
 
     Matching priority:
       1. Phone number — if provided, search GHL by phone first
-      2. Email upsert — fallback if no phone match found
+      2. Email — search by email second
+      3. Create new — if no existing contact found
 
-    Returns the GHL contact ID, or None on failure.
+    For existing contacts: custom fields are updated but tags and source are
+    never overwritten. New tags are added additively so existing programme tags
+    (e.g. Elevate) and contact type are preserved.
     """
-    tags = [
+    new_tags = [
         "intake-submitted",
         "G Ads Intake Form Completed",
         f"specialty-{submission.primary_specialty.lower().replace(' ', '-')}",
@@ -257,49 +260,73 @@ async def create_or_update_contact(
         "google_ads_data_status": google_ads_data_status,
     })
 
-    contact_payload = {
-        "locationId": GHL_LOCATION_ID,
-        "name": submission.clinic_name,
-        "email": submission.email,
-        "tags": tags,
-        "source": "Intake Form",
-        "customFields": custom_fields,
-    }
-    if submission.phone:
-        contact_payload["phone"] = submission.phone
-
     async with httpx.AsyncClient() as client:
         contact_id = None
 
-        # 1. Phone-first: search for existing contact by phone number
+        # 1. Search by phone
         if submission.phone:
             contact_id = await _find_contact_by_phone(client, submission.phone)
             if contact_id:
-                logger.info(f"Found existing contact {contact_id} by phone — updating")
-                resp = await _request_with_retry(
-                    client, "PUT",
-                    f"{BASE_URL}/contacts/{contact_id}",
-                    headers=_headers(),
-                    json=contact_payload,
-                )
-                if resp.status_code not in (200, 201):
-                    logger.error(
-                        f"Failed to update GHL contact by phone: {resp.status_code} - {resp.text}"
-                    )
-                    return None
-                logger.info(f"Updated GHL contact {contact_id} for {submission.clinic_name}")
-                return contact_id
+                logger.info(f"Found existing contact {contact_id} by phone")
 
-        # 2. Fall back to email upsert (creates if new, updates if email matches)
+        # 2. Search by email
+        if not contact_id:
+            contact_id = await _find_contact_by_email(client, submission.email)
+            if contact_id:
+                logger.info(f"Found existing contact {contact_id} by email")
+
+        if contact_id:
+            # Existing contact: update custom fields only — never touch tags or
+            # source, so programme tags and contact type are preserved.
+            update_payload = {
+                "locationId": GHL_LOCATION_ID,
+                "name": submission.clinic_name,
+                "email": submission.email,
+                "customFields": custom_fields,
+            }
+            if submission.phone:
+                update_payload["phone"] = submission.phone
+
+            resp = await _request_with_retry(
+                client, "PUT",
+                f"{BASE_URL}/contacts/{contact_id}",
+                headers=_headers(),
+                json=update_payload,
+            )
+            if resp.status_code not in (200, 201):
+                logger.error(
+                    f"Failed to update GHL contact {contact_id}: {resp.status_code} - {resp.text}"
+                )
+                return None
+
+            # Add intake tags additively — existing tags are never removed
+            for tag in new_tags:
+                await _add_tag_with_client(client, contact_id, tag)
+
+            logger.info(f"Updated existing GHL contact {contact_id} for {submission.clinic_name}")
+            return contact_id
+
+        # 3. New contact: create via upsert with full payload
+        create_payload = {
+            "locationId": GHL_LOCATION_ID,
+            "name": submission.clinic_name,
+            "email": submission.email,
+            "tags": new_tags,
+            "source": "Intake Form",
+            "customFields": custom_fields,
+        }
+        if submission.phone:
+            create_payload["phone"] = submission.phone
+
         resp = await _request_with_retry(
             client, "POST",
             f"{BASE_URL}/contacts/upsert",
             headers=_headers(),
-            json=contact_payload,
+            json=create_payload,
         )
         if resp.status_code not in (200, 201):
             logger.error(
-                f"Failed to upsert GHL contact: {resp.status_code} - {resp.text}"
+                f"Failed to create GHL contact: {resp.status_code} - {resp.text}"
             )
             return None
         data = resp.json()
@@ -307,9 +334,22 @@ async def create_or_update_contact(
             data.get("contact", {}).get("id")
             or data.get("id")
         )
-        action = "Updated" if data.get("traceId") else "Created"
-        logger.info(f"{action} GHL contact {contact_id} for {submission.clinic_name}")
+        logger.info(f"Created new GHL contact {contact_id} for {submission.clinic_name}")
         return contact_id
+
+
+async def _add_tag_with_client(client: httpx.AsyncClient, contact_id: str, tag: str) -> None:
+    """Adds a single tag to a contact using an already-open client."""
+    resp = await _request_with_retry(
+        client, "POST",
+        f"{BASE_URL}/contacts/{contact_id}/tags",
+        headers=_headers(),
+        json={"tags": [tag]},
+    )
+    if resp.status_code not in (200, 201):
+        logger.error(f"Failed to add tag '{tag}' to contact {contact_id}: {resp.status_code}")
+    else:
+        logger.info(f"Added tag '{tag}' to contact {contact_id}")
 
 
 async def _find_contact_by_phone(client: httpx.AsyncClient, phone: str) -> Optional[str]:

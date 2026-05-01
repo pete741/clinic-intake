@@ -357,10 +357,15 @@ async def _find_contact_by_phone(client: httpx.AsyncClient, phone: str) -> Optio
     Searches GHL for a contact with the given phone number.
     Returns the contact ID if found, None otherwise.
     """
-    resp = await client.get(
+    resp = await _request_with_retry(
+        client, "POST",
         f"{BASE_URL}/contacts/search",
         headers=_headers(),
-        params={"phone": phone, "locationId": GHL_LOCATION_ID},
+        json={
+            "locationId": GHL_LOCATION_ID,
+            "filters": [{"field": "phone", "operator": "eq", "value": phone}],
+            "pageLimit": 1,
+        },
     )
     if resp.status_code != 200:
         logger.error(f"GHL phone search failed: {resp.status_code} — {resp.text}")
@@ -374,19 +379,21 @@ async def _find_contact_by_email(client: httpx.AsyncClient, email: str) -> Optio
     Searches GHL for a contact with the given email address.
     Returns the contact ID if found, None otherwise.
     """
-    resp = await client.get(
+    resp = await _request_with_retry(
+        client, "POST",
         f"{BASE_URL}/contacts/search",
         headers=_headers(),
-        params={"email": email, "locationId": GHL_LOCATION_ID},
+        json={
+            "locationId": GHL_LOCATION_ID,
+            "filters": [{"field": "email", "operator": "eq", "value": email}],
+            "pageLimit": 1,
+        },
     )
     if resp.status_code != 200:
         logger.error(f"GHL contact search failed: {resp.status_code} — {resp.text}")
         return None
-
     contacts = resp.json().get("contacts", [])
-    if contacts:
-        return contacts[0].get("id")
-    return None
+    return contacts[0].get("id") if contacts else None
 
 
 async def update_contact_field(contact_id: str, field_name: str, value: str) -> bool:

@@ -278,8 +278,8 @@ async def create_or_update_contact(
         if contact_id:
             # Existing contact: update custom fields only — never touch tags or
             # source, so programme tags and contact type are preserved.
+            # Note: PUT /contacts/{id} does not accept locationId in the body.
             update_payload = {
-                "locationId": GHL_LOCATION_ID,
                 "name": submission.clinic_name,
                 "email": submission.email,
                 "customFields": custom_fields,

@@ -1433,6 +1433,74 @@ def generate_website_audit(audit_data: dict) -> bytes:
     _ws_section_content(story, styles, audit_data)
     _ws_section_priorities(story, styles, audit_data)
 
+    _book_a_call_cta(
+        story,
+        body=(
+            "Twenty minutes with Pete to walk through this website audit, "
+            "prioritise the fixes that matter most, and decide what to tackle first."
+        ),
+    )
+
     page_cb = _make_page_cb(clinic_name, audit_date, "Website Audit Report")
     doc.build(story, onFirstPage=page_cb, onLaterPages=page_cb)
     return buffer.getvalue()
+
+
+def _book_a_call_cta(story, body: str) -> None:
+    """Renders the standard 'Book a 20-minute call' CTA card at the bottom of
+    every CM PDF report. Purple background, white headline + body, yellow
+    rounded button. Hyperlinked to Pete's bookings page.
+    """
+    _spacer(story, 8)
+
+    purple_card_style = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PURPLE_DARK),
+        ("TEXTCOLOR",  (0, 0), (-1, -1), WHITE),
+        ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 22),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 22),
+        ("TOPPADDING",    (0, 0), (-1, -1), 18),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 18),
+        ("ROUNDEDCORNERS", [10, 10, 10, 10]),
+    ])
+
+    headline = Paragraph(
+        '<font face="Helvetica-Bold" color="#FFFFFF" size="14">'
+        'Want to walk through this together?</font>',
+        ParagraphStyle("book_cta_h", alignment=TA_CENTER, fontSize=14),
+    )
+    body_p = Paragraph(
+        f'<font face="Helvetica" color="#E2D4FF" size="11">{body}</font>',
+        ParagraphStyle("book_cta_b", alignment=TA_CENTER, fontSize=11, leading=15),
+    )
+    book_url = "https://bookings.clinicmastery.com/pete-flynn-google-ads"
+    button = Paragraph(
+        f'<a href="{book_url}"><font face="Helvetica-Bold" color="#534AB7" size="11">'
+        f'&nbsp;&nbsp;&nbsp;Book a 20-minute call&nbsp;&nbsp;&nbsp;</font></a>',
+        ParagraphStyle(
+            "book_cta_btn",
+            alignment=TA_CENTER,
+            fontSize=11,
+            backColor=GOLD,
+            borderRadius=20,
+            borderPadding=(8, 18, 8, 18),
+        ),
+    )
+
+    inner = Table(
+        [[headline], [Spacer(1, 6)], [body_p], [Spacer(1, 12)], [button]],
+        colWidths=[CONTENT_W - 44],
+    )
+    inner.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+
+    outer = Table([[inner]], colWidths=[CONTENT_W])
+    outer.setStyle(purple_card_style)
+    outer.keepWithNext = False
+    story.append(KeepTogether(outer))

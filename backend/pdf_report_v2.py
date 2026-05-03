@@ -700,6 +700,33 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
      viewer still treats them as clickable jumps. */
   a.jump { color: inherit; text-decoration: none; }
 
+  /* Book-a-call CTA card. Always sits just above the footer on every report.
+     Pete asked for this on every PDF (audits, briefs, website audit). Naming
+     prefix book-* avoids clashing with the .cta-button used by the hero. */
+  .book-cta {
+    background: var(--cm-purple);
+    color: var(--cm-off-white);
+    border-radius: 12px;
+    padding: 26px 30px;
+    text-align: center;
+    page-break-inside: avoid; break-inside: avoid;
+    margin-top: 4px;
+  }
+  .book-cta-headline {
+    font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 500;
+    color: var(--cm-off-white); margin-bottom: 8px; line-height: 1.3;
+  }
+  .book-cta-body {
+    font-size: 13px; color: var(--cm-lavender); line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .book-cta-btn {
+    display: inline-block; background: var(--cm-yellow); color: var(--cm-purple);
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 13px;
+    padding: 12px 26px; border-radius: 999px; text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+
   /* CTA button below the hero stat that jumps to the priority list. */
   .cta-button {
     display: block;
@@ -1191,6 +1218,12 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="book-cta">
+    <div class="book-cta-headline">Want to walk through this together?</div>
+    <p class="book-cta-body">Twenty minutes with Pete to walk through this audit, prioritise the actions that matter most, and decide what to tackle first.</p>
+    <a class="book-cta-btn" href="https://bookings.clinicmastery.com/pete-flynn-google-ads">Book a 20-minute call</a>
+  </div>
+
   <div class="footer">
     <strong>{{ clinic_name }} · Google Ads Audit · 90 days to {{ data_pulled }}</strong><br>
     Confidential. Prepared by Clinic Mastery on the basis of read-only Google Ads access.<br>
@@ -1623,6 +1656,32 @@ TEMPLATE_BRIEF_SRC = r"""<!DOCTYPE html>
   .stat-body { font-size: 13px; color: var(--cm-charcoal); line-height: 1.65; }
   .stat-body strong, .stat-headline strong { color: var(--cm-purple); font-weight: 600; }
 
+  /* Book-a-call CTA card. Sits just above the footer on every report.
+     Naming prefix book-* avoids clashing with the .cta-button used in-page. */
+  .book-cta {
+    background: var(--cm-purple);
+    color: var(--cm-off-white);
+    border-radius: 12px;
+    padding: 26px 30px;
+    text-align: center;
+    page-break-inside: avoid; break-inside: avoid;
+    margin-top: 4px;
+  }
+  .book-cta-headline {
+    font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 500;
+    color: var(--cm-off-white); margin-bottom: 8px; line-height: 1.3;
+  }
+  .book-cta-body {
+    font-size: 13px; color: var(--cm-lavender); line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .book-cta-btn {
+    display: inline-block; background: var(--cm-yellow); color: var(--cm-purple);
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 13px;
+    padding: 12px 26px; border-radius: 999px; text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+
   /* CTA button */
   .cta-button {
     display: block;
@@ -1979,6 +2038,12 @@ TEMPLATE_BRIEF_SRC = r"""<!DOCTYPE html>
       </div>
       {% endfor %}
     </div>
+  </div>
+
+  <div class="book-cta">
+    <div class="book-cta-headline">Want to walk through this together?</div>
+    <p class="book-cta-body">Twenty minutes with Pete to walk through this growth brief, prioritise the channels that matter most for your clinic, and decide what to launch first.</p>
+    <a class="book-cta-btn" href="https://bookings.clinicmastery.com/pete-flynn-google-ads">Book a 20-minute call</a>
   </div>
 
   <div class="footer">

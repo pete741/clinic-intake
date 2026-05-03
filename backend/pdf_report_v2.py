@@ -2093,3 +2093,1221 @@ def generate_intake_brief(submission: dict) -> bytes:
         clinic_name, len(pdf_bytes), len(ctx["kw_groups"]), len(ctx["next_steps"]),
     )
     return pdf_bytes
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WEBSITE AUDIT (v2)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Generates the Clinic Mastery website audit PDF in the v2 brand design
+# (HTML + WeasyPrint). Replaces the legacy ReportLab generator in
+# pdf_report.py. Same input contract: a single audit_data dict with the
+# keys documented in run_raisethebar_audit.py / run_website_audit.py.
+
+# ── Status helpers ────────────────────────────────────────────────────────────
+
+def _ws_status_text(status: str) -> str:
+    return {"pass": "GOOD", "warn": "REVIEW", "fail": "FIX"}.get(status, "REVIEW")
+
+
+def _ws_speed_status(d: dict) -> str:
+    ttfb = d.get("ttfb_ms", 0) or 0
+    js = d.get("js_files", 0) or 0
+    css = d.get("css_files", 0) or 0
+    fails = (ttfb >= 600) + (js > 20) + (css > 15)
+    warns = (200 <= ttfb < 600) + (10 < js <= 20) + (8 < css <= 15) + (not d.get("has_lazy_load")) + (not d.get("has_webp"))
+    if fails >= 1:
+        return "fail"
+    if warns >= 2:
+        return "warn"
+    return "pass"
+
+
+def _ws_seo_status(d: dict) -> str:
+    fails = sum([
+        d.get("h1_count", 1) != 1,
+        not d.get("og_image_ok", True),
+        not d.get("schema_ok", True),
+        d.get("images_missing_alt", 0) > 5,
+        not d.get("has_ssl", True),
+        not d.get("has_sitemap", True),
+    ])
+    warns = sum([
+        d.get("homepage_word_count", 500) < 500,
+        0 < d.get("images_missing_alt", 0) <= 5,
+    ])
+    if fails >= 2:
+        return "fail"
+    if fails == 1 or warns >= 2:
+        return "warn"
+    return "pass"
+
+
+def _ws_ux_status(d: dict) -> str:
+    fails = sum([
+        bool(d.get("mobile_hero_overlap")),
+        bool(d.get("cta_label_mismatch")),
+        not d.get("social_proof_above_fold", True),
+    ])
+    warns = sum([
+        (d.get("booking_steps", 0) or 0) >= 4,
+        bool(d.get("no_pricing_on_service_pages")),
+        bool(d.get("external_links_dilute")),
+    ])
+    if fails >= 2:
+        return "fail"
+    if fails == 1 or warns >= 2:
+        return "warn"
+    return "pass"
+
+
+# Map status to insight-card variant class (defined in the v2 audit template:
+# green = pass, amber = warn, rose/warn-red = fail).
+_STATUS_VARIANT = {"pass": "green", "warn": "amber", "fail": "rose"}
+
+
+# ── Audience + specialty helpers ──────────────────────────────────────────────
+
+def _ws_audience(spec_lc: str) -> tuple[str, str]:
+    """Returns (audience_term, action_term) for the hero/UX copy."""
+    if "speech" in spec_lc or "paediatric" in spec_lc or "child" in spec_lc:
+        return ("parents", "book an assessment for their child")
+    if "psychol" in spec_lc or "counsel" in spec_lc:
+        return ("clients", "book an appointment")
+    return ("patients", "book an appointment")
+
+
+def _ws_schema_type(spec_lc: str) -> str:
+    if "psychol" in spec_lc or "counsel" in spec_lc:
+        return "PsychologistService"
+    if "physio" in spec_lc:
+        return "MedicalBusiness (Physiotherapy)"
+    if "speech" in spec_lc:
+        return "MedicalBusiness (SpeechTherapist)"
+    return "LocalBusiness or MedicalBusiness"
+
+
+def _ws_locations(d: dict) -> tuple[list[str], str]:
+    location = d.get("location", "") or ""
+    locs = [l.strip() for l in location.replace("&", ",").split(",")
+            if l.strip() and len(l.strip()) < 35]
+    primary = locs[0] if locs else location
+    return locs, primary
+
+
+# ── Section builders ──────────────────────────────────────────────────────────
+
+def _ws_hero(d: dict) -> dict:
+    """Top-of-doc verdict, data-driven so the report opens with the right
+    tone (mostly green vs needs attention). Mirrors the legacy intro
+    paragraph but punchier."""
+    speed = _ws_speed_status(d)
+    seo = _ws_seo_status(d)
+    ux = _ws_ux_status(d)
+    spec = d.get("specialty", "") or ""
+    spec_lc = spec.lower()
+    audience, _ = _ws_audience(spec_lc)
+    locs, primary = _ws_locations(d)
+    fails = sum(s == "fail" for s in (speed, seo, ux))
+    warns = sum(s == "warn" for s in (speed, seo, ux))
+
+    speed_phrase = {
+        "pass": "Site speed is in good shape",
+        "warn": "Site speed has a couple of issues worth tightening",
+        "fail": "Site speed is the biggest blocker",
+    }[speed]
+    seo_phrase = {
+        "pass": "the SEO structure is solid",
+        "warn": "the SEO structure needs a couple of fixes",
+        "fail": "the SEO structure has critical gaps",
+    }[seo]
+    ux_phrase = {
+        "pass": "the conversion flow is well laid out",
+        "warn": "the conversion flow has friction worth removing",
+        "fail": "the conversion flow is leaking visits at the booking step",
+    }[ux]
+
+    if fails >= 2:
+        framing = "There are a handful of high-impact items to address before this site is pulling its weight on patient acquisition."
+    elif fails == 1:
+        framing = (
+            "One area is dragging the rest down. Fix it and the existing "
+            "strengths of the site start showing up in bookings."
+        )
+    elif warns >= 2:
+        framing = (
+            "The fundamentals are in place. The fixes below are the next layer "
+            "of polish that will lift conversions without a redesign."
+        )
+    else:
+        framing = "The fundamentals are strong. The fixes below are smaller, sharper levers to add on top."
+
+    headline = (
+        f"<strong>{speed_phrase}</strong>, and "
+        f"<strong>{seo_phrase}</strong>. The story this 90-day audit tells is that "
+        f"<strong>{ux_phrase}</strong>."
+    )
+
+    body = (
+        f"This audit covers <strong>{d.get('website_url', 'the site')}</strong>"
+        + (f" for {audience} searching '{spec_lc} {primary}'." if primary else f" for {audience}.")
+        + " It scores three pillars (speed, SEO, conversion) and ends with a prioritised fix list. "
+        + framing
+    )
+
+    return {
+        "eyebrow": "THE VERDICT",
+        "headline": headline,
+        "body": body,
+    }
+
+
+def _ws_scorecard(d: dict) -> list[dict]:
+    speed = _ws_speed_status(d)
+    seo = _ws_seo_status(d)
+    ux = _ws_ux_status(d)
+    return [
+        {"label": "Site Speed",     "status": speed, "text": _ws_status_text(speed)},
+        {"label": "SEO Structure",  "status": seo,   "text": _ws_status_text(seo)},
+        {"label": "UX & Conversion", "status": ux,    "text": _ws_status_text(ux)},
+    ]
+
+
+def _ws_speed_card(d: dict) -> dict:
+    ttfb = d.get("ttfb_ms", 0) or 0
+    load = d.get("full_load_ms", 0) or 0
+    js = d.get("js_files", 0) or 0
+    css = d.get("css_files", 0) or 0
+    resources = d.get("total_resources", 0) or 0
+    has_webp = d.get("has_webp", False)
+    has_lazy = d.get("has_lazy_load", False)
+    status = _ws_speed_status(d)
+
+    bullets: list[str] = []
+    if ttfb < 200:
+        bullets.append(
+            f"<strong>TTFB {ttfb}ms.</strong> Server response is well within Google's 200ms target."
+        )
+    elif ttfb < 600:
+        bullets.append(
+            f"<strong>TTFB {ttfb}ms.</strong> Slower than ideal. A caching plugin "
+            "(WP Rocket, LiteSpeed Cache) usually brings this under 200ms without changing hosts."
+        )
+    else:
+        bullets.append(
+            f"<strong>TTFB {ttfb}ms.</strong> Critically slow. The host needs a caching layer "
+            "or an upgrade before any other speed work matters."
+        )
+
+    if js > 20 or css > 15:
+        bullets.append(
+            f"<strong>{js} JavaScript files and {css} CSS stylesheets</strong> on every page. "
+            "Healthy range is under 10 JS and 8 CSS. This is almost always WordPress plugin bloat. "
+            "WP Rocket asset minification reduces these to 2-4 files each and cuts mobile load by 50-70%."
+        )
+    elif js > 10 or css > 8:
+        bullets.append(
+            f"<strong>{js} JavaScript files, {css} CSS stylesheets.</strong> A bit above ideal. "
+            "Asset minification via the existing SEO plugin would tidy this up."
+        )
+
+    if not has_webp:
+        bullets.append(
+            "<strong>No WebP images detected.</strong> WebP is 25-35% smaller than PNG/JPG at the "
+            "same visible quality. Smush or ShortPixel converts existing images automatically."
+        )
+    if not has_lazy:
+        bullets.append(
+            "<strong>Lazy loading is off.</strong> Images load on first page load whether they're "
+            "visible or not. Adding loading='lazy' on below-the-fold images is a five-minute win."
+        )
+
+    if not bullets:
+        bullets.append(
+            "Speed fundamentals are clean. Keep the lazy loading and image format settings as they "
+            "are; revisit when the next major theme/template update lands."
+        )
+
+    metrics = [
+        {"v": f"{ttfb}ms", "l": "Time to first byte"},
+        {"v": f"{load}ms", "l": "Full page load"},
+        {"v": str(resources), "l": "Total resources"},
+        {"v": str(js), "l": "JS files"},
+        {"v": str(css), "l": "CSS sheets"},
+        {"v": "Yes" if has_webp else "No", "l": "WebP"},
+    ]
+
+    return {
+        "variant": _STATUS_VARIANT[status],
+        "status_text": _ws_status_text(status),
+        "title": (
+            "Page speed is the lever that turns search rankings into bookings. "
+            "Google uses Core Web Vitals as a direct mobile ranking signal."
+        ),
+        "bullets": bullets,
+        "metrics": metrics,
+    }
+
+
+def _ws_seo_card(d: dict) -> dict:
+    spec = d.get("specialty", "") or ""
+    spec_lc = spec.lower()
+    schema_type = _ws_schema_type(spec_lc)
+    locs, primary = _ws_locations(d)
+    is_multi = len(locs) > 1
+    h1_count = d.get("h1_count", 1) or 0
+    imgs_no_alt = d.get("images_missing_alt", 0) or 0
+    total_imgs = d.get("total_images", 1) or 1
+    word_count = d.get("homepage_word_count", 0) or 0
+    pages_indexed = d.get("pages_indexed", 0) or 0
+    h1_example = f"{spec} in {primary}" if primary else spec
+
+    checks: list[dict] = []
+
+    if h1_count == 1:
+        checks.append({"label": "H1 tag", "status": "pass",
+                       "detail": "Single H1 correctly set on the homepage."})
+    else:
+        checks.append({"label": "H1 tag", "status": "fail",
+                       "detail": (
+                           f"{h1_count} H1 headings on the homepage. Google uses the H1 as the "
+                           f"primary topic signal per page; multiple H1s split that signal. Set one "
+                           f"H1 per page targeting the main keyword (for example <em>{h1_example}</em>) "
+                           "and demote everything else to H2 or H3. Practitioner names listed as H1 "
+                           "on team pages are a common cause of this."
+                       )})
+
+    if d.get("og_image_ok"):
+        checks.append({"label": "Open Graph image", "status": "pass",
+                       "detail": "Real clinic image set for social sharing previews."})
+    else:
+        checks.append({"label": "Open Graph image", "status": "fail",
+                       "detail": (
+                           "Social sharing previews show an icon rather than a real clinic photo. "
+                           "Replace with a 1200x630 photo of the clinic or team in the SEO plugin's "
+                           "social settings. Five-minute fix."
+                       )})
+
+    if d.get("schema_ok"):
+        checks.append({"label": "Schema markup", "status": "pass",
+                       "detail": f"{schema_type} schema correctly configured."})
+    else:
+        checks.append({"label": "Schema markup", "status": "fail",
+                       "detail": (
+                           f"No valid schema markup is set. Google uses {schema_type} schema to "
+                           "power rich results: star ratings, opening hours, address and phone "
+                           "in search listings. Configure via the SEO plugin (Rank Math or Yoast). "
+                           f"{'One entry per location.' if is_multi else 'Single entry with full address, hours, phone.'} "
+                           "30 to 45 minutes; no design change needed."
+                       )})
+
+    if imgs_no_alt == 0:
+        checks.append({"label": "Image alt text", "status": "pass",
+                       "detail": "All images carry alt text."})
+    elif imgs_no_alt > 5:
+        checks.append({"label": "Image alt text", "status": "fail",
+                       "detail": (
+                           f"{imgs_no_alt} of {total_imgs} images have no alt text. Alt text feeds "
+                           "image search and screen readers. Add descriptive alt text to every "
+                           "clinic, team, and service image in the media library."
+                       )})
+    else:
+        checks.append({"label": "Image alt text", "status": "warn",
+                       "detail": f"{imgs_no_alt} of {total_imgs} images missing alt text. Quick fix from the WordPress media library."})
+
+    if word_count >= 500:
+        checks.append({"label": "Homepage depth", "status": "pass",
+                       "detail": f"{word_count} words of homepage content. Strong depth for SEO."})
+    else:
+        checks.append({"label": "Homepage depth", "status": "warn",
+                       "detail": (
+                           f"Approximately {word_count} words on the homepage. Competitive {spec_lc} "
+                           "keywords typically rank pages with 600-1,000 words. Adding service summaries, "
+                           "an FAQ, and location details strengthens keyword coverage with no design change."
+                       )})
+
+    if d.get("has_ssl", True):
+        checks.append({"label": "SSL (HTTPS)", "status": "pass",
+                       "detail": "Site is served over HTTPS."})
+    else:
+        checks.append({"label": "SSL (HTTPS)", "status": "fail",
+                       "detail": "No HTTPS. Critical security and ranking issue. Contact the host today."})
+
+    if d.get("has_sitemap", True):
+        checks.append({"label": "XML sitemap", "status": "pass",
+                       "detail": (
+                           f"Sitemap covers {pages_indexed} pages. Keep service and location pages updated."
+                           if pages_indexed else "Sitemap is in place."
+                       )})
+    else:
+        checks.append({"label": "XML sitemap", "status": "fail",
+                       "detail": (
+                           "No sitemap detected. Most WordPress SEO plugins (Rank Math, Yoast) generate one "
+                           "automatically. Submit via Google Search Console once enabled."
+                       )})
+
+    if is_multi:
+        checks.append({"label": "Suburb landing pages", "status": "warn",
+                       "detail": (
+                           f"With clinics across {d.get('location', '')} there is a strong opportunity "
+                           "to rank for suburb-level searches. Each location page needs 400+ words of "
+                           "local content, the address, a team photo, directions and a booking CTA."
+                       )})
+
+    fails = sum(c["status"] == "fail" for c in checks)
+    warns = sum(c["status"] == "warn" for c in checks)
+    if fails >= 2:
+        variant = "rose"
+    elif fails == 1 or warns >= 2:
+        variant = "amber"
+    else:
+        variant = "green"
+
+    title = (
+        f"SEO structure determines whether visitors searching '{spec_lc} {primary}' "
+        f"find this clinic or a competitor. Each item below directly affects ranking."
+        if primary else
+        "SEO structure determines whether visitors searching for this specialty find this clinic or a competitor."
+    )
+
+    return {
+        "variant": variant,
+        "title": title,
+        "checks": checks,
+    }
+
+
+def _ws_ux_card(d: dict) -> dict:
+    spec = d.get("specialty", "") or ""
+    audience, action = _ws_audience(spec.lower())
+    issues: list[dict] = []
+
+    if d.get("mobile_hero_overlap"):
+        issues.append({
+            "severity": "HIGH",
+            "title": "Mobile hero needs a clean breakpoint",
+            "detail": (
+                f"On mobile viewports (390px wide, the most common screen size for local health "
+                f"searches) the hero has layout issues that look unpolished. This is the first thing "
+                f"a {audience} sees on a phone. A CSS breakpoint below 480px that stacks the hero "
+                "elements cleanly resolves it."
+            ),
+        })
+    if d.get("cta_label_mismatch"):
+        issues.append({
+            "severity": "HIGH",
+            "title": "CTA label does not match what the button delivers",
+            "detail": (
+                f"The primary call-to-action says <em>Book Now</em> but leads to an enquiry or "
+                f"waitlist form, not a booking. A {audience} clicking <em>Book Now</em> expecting "
+                "to secure an appointment may not follow through when they hit a callback form. "
+                "Either set up direct online booking, or rename the button to match the actual step "
+                "(<em>Submit an Enquiry</em>, <em>Join the Waitlist</em>, or <em>Request a Callback</em>)."
+            ),
+        })
+    booking_steps = d.get("booking_steps", 0) or 0
+    if booking_steps >= 4:
+        issues.append({
+            "severity": "MEDIUM",
+            "title": f"Booking flow is {booking_steps} steps",
+            "detail": (
+                f"{audience.capitalize()} on mobile, often mid-commute or mid-school-run, may "
+                f"abandon a long form before completing it. Test a 2 or 3 step version capturing "
+                "name, phone and preferred time first; collect clinical detail on a follow-up call."
+            ),
+        })
+    if not d.get("social_proof_above_fold", True):
+        issues.append({
+            "severity": "HIGH",
+            "title": "No trust signals above the fold",
+            "detail": (
+                "The hero shows the clinic name and headline, but no professional credibility signals "
+                "appear without scrolling. Add a credential bar below the hero: professional body logo, "
+                "NDIS registration if applicable, years established and Google review count. "
+                "AHPRA-compliant: patient testimonials are restricted, but professional logos, "
+                "credentials and years established are fully permitted."
+            ),
+        })
+    if d.get("external_links_dilute"):
+        issues.append({
+            "severity": "MEDIUM",
+            "title": "External links dilute the conversion funnel",
+            "detail": (
+                f"Several pages link to external resources before the {audience} has booked. "
+                "Move these to a dedicated <em>Resources</em> page; keep service and location pages "
+                "focused on the booking CTA."
+            ),
+        })
+    if d.get("no_pricing_on_service_pages"):
+        issues.append({
+            "severity": "MEDIUM",
+            "title": "Pricing not visible on service pages",
+            "detail": (
+                f"Service pages carry no pricing or fees link. A {audience} researching "
+                "affordability has to navigate to a separate fees page. A <em>From $X per session, "
+                "see full fees</em> callout on each service page removes the barrier."
+            ),
+        })
+
+    if not issues:
+        issues.append({
+            "severity": "LOW",
+            "title": "UX fundamentals are in good shape",
+            "detail": (
+                "No critical UX issues stood out. The site presents clearly and the conversion "
+                "flow is logical. Continue monitoring via Google Analytics and Search Console."
+            ),
+        })
+
+    fails = sum(i["severity"] == "HIGH" for i in issues)
+    warns = sum(i["severity"] == "MEDIUM" for i in issues)
+    if fails >= 2:
+        variant = "rose"
+    elif fails == 1 or warns >= 2:
+        variant = "amber"
+    else:
+        variant = "green"
+
+    return {
+        "variant": variant,
+        "title": (
+            f"The job of this site is to reduce hesitation, build trust quickly, and get the "
+            f"{audience} to one action: {action}. Every friction point below is a reason a "
+            "visitor might click away instead."
+        ),
+        "issues": issues,
+    }
+
+
+def _ws_content_card(d: dict) -> dict:
+    spec = d.get("specialty", "") or ""
+    spec_lc = spec.lower()
+    blog_posts = d.get("blog_posts", 0) or 0
+    has_blog = bool(d.get("has_blog"))
+    locs, primary = _ws_locations(d)
+    is_multi = len(locs) > 1
+
+    if "psychol" in spec_lc or "counsel" in spec_lc:
+        topics = "what to expect from your first session, anxiety vs depression, ADHD assessment for adults"
+        ndis_label = f"NDIS Psychology page targeting NDIS psychologist {primary or '[suburb]'}"
+    elif "speech" in spec_lc:
+        topics = "when should my child see a speech pathologist, speech delay vs disorder, NDIS speech therapy"
+        ndis_label = "NDIS Speech Pathology page"
+    elif "physio" in spec_lc:
+        topics = "how long does physio take, physio vs GP, sports injury recovery, does Medicare cover physio"
+        ndis_label = "NDIS Physiotherapy page"
+    else:
+        topics = (
+            f"what to expect at your first {spec_lc} appointment, does Medicare cover {spec_lc}, "
+            f"how to find a {spec_lc} near me"
+        )
+        ndis_label = f"NDIS {spec} page"
+
+    if not has_blog or blog_posts == 0:
+        blog_now = "No blog detected on the site."
+        blog_next = f"Start with one post per month targeting questions clients actually search: {topics}."
+    elif blog_posts < 10:
+        blog_now = f"{blog_posts} posts published."
+        blog_next = f"Aim for one post per month. High-value topics: {topics}."
+    else:
+        blog_now = f"{blog_posts} posts published; strong content library."
+        blog_next = (
+            "Maintain at least one post per month. Prioritise suburb-specific and condition-specific "
+            "content. Update older posts annually to keep them ranking."
+        )
+
+    if is_multi:
+        loc_now = f"Operates across {d.get('location', '')}."
+        loc_next = (
+            f"Each location page needs 400+ words of local content: suburb context, team photo, "
+            f"nearby areas served, directions and a booking CTA. Target '{spec_lc} [suburb]' as the H1."
+        )
+    else:
+        loc_now = f"Single location in {primary or 'one suburb'}."
+        loc_next = (
+            f"Suburb-radius content: blog posts targeting '{spec_lc} near [adjacent suburb]' extend "
+            "reach without new premises."
+        )
+
+    rows = [
+        {"area": "Blog / Articles", "now": blog_now, "next": blog_next},
+        {"area": "FAQ content", "now": "Check whether common pre-booking questions are answered on service pages or a dedicated FAQ.",
+         "next": "A 15-20 question FAQ targeting questions clients Google ranks in featured snippets and reduces pre-booking uncertainty."},
+        {"area": "NDIS content", "now": "NDIS mentioned across the site.",
+         "next": (
+            f"A dedicated {ndis_label} attracts plan managers, support coordinators, and self-managed "
+            "NDIS participants. High-intent referrers."
+         )},
+        {"area": "Location pages", "now": loc_now, "next": loc_next},
+        {"area": "Service depth", "now": "Service pages describe core offerings.",
+         "next": (
+            "Expand each service page to 400+ words with a 'what to expect' section, who it helps, "
+            "and a clear booking CTA. Lifts both rankings and pre-booking confidence."
+         )},
+        {"area": "Team profiles", "now": "About page lists team credentials.",
+         "next": (
+            "Short practitioner profiles with photo, credentials, and specialty areas build trust. "
+            "A short video introduction from one or two practitioners increases time-on-page noticeably."
+         )},
+    ]
+    return {
+        "variant": "blue",
+        "title": (
+            f"Content is how Google decides which clinic is the authority on {spec_lc} in a given "
+            "suburb. The more relevant, helpful content on the site, the more often it appears."
+        ),
+        "rows": rows,
+    }
+
+
+def _ws_priorities(d: dict) -> list[dict]:
+    spec = d.get("specialty", "") or ""
+    spec_lc = spec.lower()
+    locs, primary = _ws_locations(d)
+    is_multi = len(locs) > 1
+    schema_type = _ws_schema_type(spec_lc)
+    h1_example = f"{spec} in {primary}" if primary else spec
+    h1_count = d.get("h1_count", 1) or 0
+    imgs_no_alt = d.get("images_missing_alt", 0) or 0
+    total_imgs = d.get("total_images", 1) or 1
+    word_count = d.get("homepage_word_count", 500) or 500
+    js = d.get("js_files", 0) or 0
+    css = d.get("css_files", 0) or 0
+
+    out: list[dict] = []
+
+    # ── CRITICAL ──
+    if h1_count != 1:
+        out.append({
+            "level": "CRITICAL",
+            "title": "Fix duplicate H1 tags across the site",
+            "body": (
+                f"There are {h1_count} H1 headings on the homepage, and other pages may carry "
+                "additional H1s on every practitioner name. Google uses the H1 as the primary topic "
+                f"signal per page. Set one H1 per page targeting the main keyword, for example "
+                f"<em>{h1_example}</em>. All practitioner names and sub-headings should be H2 or H3."
+            ),
+        })
+    if not d.get("schema_ok"):
+        out.append({
+            "level": "CRITICAL",
+            "title": "Add LocalBusiness schema markup to every page",
+            "body": (
+                f"No valid structured data is set. Google uses {schema_type} schema to power "
+                "rich results: star ratings, opening hours, address and phone in search listings. "
+                "Configure via the SEO plugin (Rank Math or Yoast) in 30 to 45 minutes. No design change."
+            ),
+        })
+    if not d.get("og_image_ok"):
+        out.append({
+            "level": "CRITICAL",
+            "title": "Replace the Open Graph image with a real clinic photo",
+            "body": (
+                "Every share on Facebook, WhatsApp or LinkedIn shows a small icon rather than a real "
+                "clinic image. This undermines credibility at the moment of referral. Upload a "
+                "1200x630 clinic or team photo to the SEO plugin's social settings."
+            ),
+        })
+    if imgs_no_alt > 0:
+        pct = round(imgs_no_alt / total_imgs * 100)
+        out.append({
+            "level": "CRITICAL",
+            "title": f"Add alt text to {imgs_no_alt} images ({pct}% of total)",
+            "body": (
+                f"{imgs_no_alt} of {total_imgs} images carry no alt text. This blocks screen readers "
+                "and stops Google understanding the images. Add descriptive alt text in the WordPress "
+                "media library. Around 30 minutes of work."
+            ),
+        })
+    if d.get("cta_label_mismatch"):
+        out.append({
+            "level": "CRITICAL",
+            "title": "Fix the CTA: 'Book Now' must deliver what it promises",
+            "body": (
+                "The primary CTA says <em>Book Now</em> but leads to an enquiry or waitlist form. "
+                "This creates a trust gap at the highest-intent moment. Either set up direct online "
+                "booking, or rename the CTA to describe the actual next step (<em>Submit an "
+                "Enquiry</em>, <em>Join the Waitlist</em>, <em>Request a Callback</em>)."
+            ),
+        })
+
+    # ── HIGH ──
+    if js > 20 or css > 15:
+        out.append({
+            "level": "HIGH",
+            "title": "Reduce JavaScript and CSS file bloat",
+            "body": (
+                f"The site loads {js} JavaScript files and {css} CSS stylesheets on every page. "
+                "Healthy range is under 10 JS and 8 CSS. WP Rocket (~$59/yr) with asset minification "
+                "and bundling reduces these to 2-4 files each, cutting load time by 50-70% and "
+                "directly improving the mobile experience."
+            ),
+        })
+    if d.get("mobile_hero_overlap"):
+        out.append({
+            "level": "HIGH",
+            "title": "Fix the mobile hero layout",
+            "body": (
+                "On mobile viewports the homepage hero has layout issues. Most local clinic searches "
+                "happen on a phone, so this is the first impression for the majority of visitors. "
+                "A CSS fix at the 480px breakpoint resolves it. Test on iPhone and a mid-range Android "
+                "before publishing."
+            ),
+        })
+    if not d.get("social_proof_above_fold", True):
+        out.append({
+            "level": "HIGH",
+            "title": "Add trust signals above the fold",
+            "body": (
+                "No professional credentials are visible without scrolling. Add a credential bar "
+                "below the hero: professional body logo, NDIS registration if applicable, years "
+                "established, Google review count. All AHPRA-compliant; no patient testimonials needed."
+            ),
+        })
+    if not d.get("has_lazy_load"):
+        out.append({
+            "level": "HIGH",
+            "title": "Enable lazy loading on images",
+            "body": (
+                "Images load on first page load whether or not the visitor has scrolled to them. "
+                "Adding loading='lazy' to below-the-fold images cuts initial page weight and "
+                "improves mobile load. Enable via WP Rocket or set the attribute in the theme."
+            ),
+        })
+
+    # ── MEDIUM ──
+    if d.get("no_pricing_on_service_pages"):
+        out.append({
+            "level": "MEDIUM",
+            "title": "Add pricing visibility on service pages",
+            "body": (
+                "Service pages carry no pricing or link to a fees page. Someone researching "
+                "affordability has to find the fees page independently. A <em>From $X per session, "
+                "see full fees</em> callout with a link removes the barrier on every service page."
+            ),
+        })
+    if is_multi:
+        loc_list = " and ".join(locs[:2]) if len(locs) >= 2 else primary
+        out.append({
+            "level": "MEDIUM",
+            "title": f"Optimise location landing pages for {loc_list}",
+            "body": (
+                f"Location pages exist but should be expanded with local content: 400+ words per "
+                f"page, suburb-specific intro, team members at that location, nearby areas served, "
+                f"directions and a booking CTA. Each page should target '{spec_lc} [suburb]' as its H1."
+            ),
+        })
+    if word_count < 500:
+        out.append({
+            "level": "MEDIUM",
+            "title": "Expand homepage content depth",
+            "body": (
+                f"The homepage is under 500 words. For competitive {spec_lc} keywords, Google "
+                "typically ranks pages with 600 to 1,000 words above thin pages. Adding service "
+                "summaries, location details and an FAQ strengthens keyword coverage with no "
+                "design change."
+            ),
+        })
+
+    # ── QUICK WINS ──
+    if not d.get("has_sitemap", True):
+        out.append({
+            "level": "QUICK WIN",
+            "title": "Create and submit an XML sitemap",
+            "body": (
+                "No sitemap detected. Enable the sitemap feature in Rank Math or Yoast SEO (both free). "
+                "Submit the sitemap URL in Google Search Console. 15 minute fix."
+            ),
+        })
+    if not d.get("has_webp"):
+        out.append({
+            "level": "QUICK WIN",
+            "title": "Convert images to WebP format",
+            "body": (
+                "No WebP images detected. WebP is 25-35% smaller than PNG/JPG at equivalent quality. "
+                "Smush or ShortPixel converts images automatically on upload. Enable in the plugin "
+                "dashboard."
+            ),
+        })
+    out.append({
+        "level": "QUICK WIN",
+        "title": "Add a Google review count near the hero CTA",
+        "body": (
+            "A single line showing the Google rating and review count near the booking button "
+            "(<em>4.9 stars, 120+ Google Reviews</em>) lifts click-through by reducing uncertainty "
+            "at the decision moment. AHPRA-compliant: it references a third-party platform."
+        ),
+    })
+
+    return out
+
+
+# ── Template ──────────────────────────────────────────────────────────────────
+
+TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ clinic_name }} · Website Audit · {{ audit_date }}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;700&family=Work+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --cm-purple:       #2E0A78;
+    --cm-yellow:       #F0D140;
+    --cm-charcoal:     #2A2B2B;
+    --cm-off-white:    #FEFEFE;
+    --cm-body-grey:    #6E6E6E;
+    --cm-orange:       #FF8E21;
+    --cm-blue:         #24A3FF;
+    --cm-magenta:      #A1129E;
+    --cm-warm-red:     #FF7777;
+    --cm-coral-red:    #FF707D;
+    --cm-silver-grey:  #ABB1BA;
+    --cm-light-grey-1: #F5F5F7;
+    --cm-light-grey-2: #E3E5E8;
+    --cm-light-grey-3: #F9F9F9;
+    --cm-divider:      #EDEDED;
+    --cm-lavender:     #E2D4FF;
+    --cm-rose-bg:      #FFE3E6;
+    --cm-green:        #2E8B4A;
+    --cm-green-bg:     #E5F4EA;
+    --cm-amber-bg:     #FFE6CC;
+    --cm-blue-bg:      #DEF1FF;
+  }
+
+  @page { size: A4; margin: 14mm 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Work Sans', -apple-system, sans-serif;
+    background: var(--cm-light-grey-1);
+    color: var(--cm-charcoal);
+    padding: 40px 24px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page { max-width: 760px; margin: 0 auto; }
+  .page > * + * { margin-top: 12px; }
+
+  /* HEADER */
+  .header {
+    background: var(--cm-purple); border-radius: 14px;
+    padding: 28px 32px; color: var(--cm-off-white);
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 26px;
+  }
+  .header::after {
+    content: ""; position: absolute; top: -40px; right: -40px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(240, 209, 64, 0.18) 0%, rgba(240, 209, 64, 0) 70%);
+    pointer-events: none;
+  }
+  .header-logo { height: 68px; width: auto; flex-shrink: 0; position: relative; z-index: 1; }
+  .header-content { flex: 1; min-width: 0; position: relative; z-index: 1; }
+  .header-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--cm-yellow); margin-bottom: 10px;
+  }
+  .header-title {
+    font-family: 'Lexend', sans-serif; font-size: 26px; font-weight: 500;
+    color: var(--cm-off-white); margin-bottom: 6px; letter-spacing: -0.01em; line-height: 1.2;
+  }
+  .header-sub { font-size: 14px; color: var(--cm-lavender); }
+  .header-meta {
+    font-size: 11px; color: var(--cm-yellow); margin-top: 14px;
+    letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700;
+  }
+
+  /* SECTION LABEL */
+  .section-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--cm-orange);
+    margin-bottom: 4px; margin-top: 6px;
+    break-after: avoid; page-break-after: avoid;
+  }
+
+  /* HERO */
+  .stat-hero { background: var(--cm-lavender); border-radius: 12px; padding: 24px 28px; }
+  .stat-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--cm-magenta); margin-bottom: 10px;
+  }
+  .stat-headline {
+    font-family: 'Lexend', sans-serif; font-size: 19px; font-weight: 500;
+    color: var(--cm-purple); margin-bottom: 12px; line-height: 1.4; letter-spacing: -0.01em;
+  }
+  .stat-body { font-size: 13px; color: var(--cm-charcoal); line-height: 1.65; }
+  .stat-body strong, .stat-headline strong { color: var(--cm-purple); font-weight: 600; }
+
+  /* SCORECARD KPI GRID */
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .score-tile {
+    background: var(--cm-off-white);
+    border: 1px solid var(--cm-light-grey-2);
+    border-radius: 12px;
+    padding: 22px 18px 18px;
+    text-align: center;
+  }
+  .score-tile.pass { border-color: var(--cm-green); background: var(--cm-green-bg); }
+  .score-tile.warn { border-color: var(--cm-orange); background: var(--cm-amber-bg); }
+  .score-tile.fail { border-color: var(--cm-coral-red); background: var(--cm-rose-bg); }
+  .score-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--cm-charcoal); margin-bottom: 12px;
+  }
+  .score-tag {
+    display: inline-block;
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 18px;
+    letter-spacing: 0.04em;
+    padding: 6px 14px; border-radius: 999px;
+  }
+  .score-tile.pass .score-tag { color: var(--cm-off-white); background: var(--cm-green); }
+  .score-tile.warn .score-tag { color: var(--cm-off-white); background: var(--cm-orange); }
+  .score-tile.fail .score-tag { color: var(--cm-off-white); background: var(--cm-coral-red); }
+
+  /* INSIGHT CARDS */
+  .insight {
+    border-radius: 12px;
+    padding: 20px 22px;
+    border-left: 4px solid;
+  }
+  .insight.green { background: var(--cm-green-bg); border-color: var(--cm-green); }
+  .insight.amber { background: var(--cm-amber-bg); border-color: var(--cm-orange); }
+  .insight.rose  { background: var(--cm-rose-bg); border-color: var(--cm-coral-red); }
+  .insight.blue  { background: var(--cm-blue-bg); border-color: var(--cm-blue); }
+  .insight h3 {
+    font-family: 'Lexend', sans-serif; font-size: 14.5px; font-weight: 500;
+    margin-bottom: 8px; line-height: 1.4;
+  }
+  .insight.green h3 { color: var(--cm-green); }
+  .insight.amber h3 { color: var(--cm-orange); }
+  .insight.rose  h3 { color: var(--cm-coral-red); }
+  .insight.blue  h3 { color: var(--cm-blue); }
+  .insight p { font-size: 13px; color: var(--cm-charcoal); line-height: 1.6; }
+  .insight p + p { margin-top: 8px; }
+  .insight ul { margin-top: 8px; padding-left: 18px; }
+  .insight li { font-size: 13px; color: var(--cm-charcoal); line-height: 1.6; margin-bottom: 5px; }
+  .insight strong { font-weight: 600; }
+  .insight em { font-style: italic; color: var(--cm-purple); }
+
+  /* SPEED METRIC GRID INSIDE INSIGHT */
+  .metric-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    margin-top: 12px;
+  }
+  .metric-cell {
+    background: var(--cm-off-white);
+    border: 1px solid var(--cm-light-grey-2);
+    border-radius: 8px;
+    padding: 10px 8px;
+    text-align: center;
+  }
+  .metric-v {
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 15px;
+    color: var(--cm-purple); line-height: 1.1; margin-bottom: 4px;
+  }
+  .metric-l {
+    font-size: 9.5px; color: var(--cm-body-grey);
+    text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.3;
+  }
+
+  /* CHECKLIST INSIDE INSIGHT */
+  .check-list { margin-top: 10px; }
+  .check-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+  }
+  .check-row:last-child { border-bottom: none; }
+  .check-row .ck-detail { font-size: 12.5px; color: var(--cm-charcoal); line-height: 1.55; }
+  .check-row .ck-detail strong { font-weight: 600; color: var(--cm-purple); }
+  .check-row .ck-detail .ck-label {
+    display: block;
+    font-family: 'Lexend', sans-serif; font-weight: 500; font-size: 13px;
+    color: var(--cm-charcoal); margin-bottom: 2px;
+  }
+  .ck-pill {
+    align-self: start;
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 9.5px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .ck-pill.pass { background: var(--cm-green); color: var(--cm-off-white); }
+  .ck-pill.warn { background: var(--cm-orange); color: var(--cm-off-white); }
+  .ck-pill.fail { background: var(--cm-coral-red); color: var(--cm-off-white); }
+
+  /* UX ISSUE ROWS */
+  .issue-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 12px; padding: 12px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+  }
+  .issue-row:last-child { border-bottom: none; }
+  .issue-row .iss-title {
+    font-family: 'Lexend', sans-serif; font-weight: 500; font-size: 13.5px;
+    color: var(--cm-charcoal); margin-bottom: 4px; line-height: 1.35;
+  }
+  .issue-row .iss-detail { font-size: 12.5px; color: var(--cm-charcoal); line-height: 1.55; }
+  .iss-pill {
+    align-self: start;
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 9.5px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .iss-pill.HIGH   { background: var(--cm-coral-red); color: var(--cm-off-white); }
+  .iss-pill.MEDIUM { background: var(--cm-orange);    color: var(--cm-off-white); }
+  .iss-pill.LOW    { background: var(--cm-green);     color: var(--cm-off-white); }
+
+  /* CONTENT TABLE */
+  .content-table {
+    width: 100%; border-collapse: collapse; margin-top: 10px;
+    font-size: 12.5px; color: var(--cm-charcoal);
+  }
+  .content-table th {
+    background: var(--cm-purple); color: var(--cm-off-white);
+    font-family: 'Lexend', sans-serif; font-weight: 500; font-size: 11px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 10px 12px; text-align: left;
+  }
+  .content-table td {
+    padding: 10px 12px; vertical-align: top; line-height: 1.55;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+  }
+  .content-table .area { font-weight: 600; color: var(--cm-purple); width: 22%; }
+  .content-table .now { width: 36%; }
+
+  /* ACTION ROW */
+  .action-row {
+    display: flex; gap: 16px;
+    background: var(--cm-off-white);
+    border: 1px solid var(--cm-light-grey-2);
+    border-radius: 12px;
+    padding: 16px 20px;
+    align-items: flex-start;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .action-num {
+    background: var(--cm-purple); color: var(--cm-yellow);
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 17px;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .action-content { flex: 1; break-inside: avoid; page-break-inside: avoid; }
+  .action-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .action-title {
+    font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 500;
+    color: var(--cm-purple); line-height: 1.3;
+  }
+  .pri-pill {
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px;
+  }
+  .pri-pill.CRITICAL  { background: var(--cm-coral-red); color: var(--cm-off-white); }
+  .pri-pill.HIGH      { background: var(--cm-orange);    color: var(--cm-off-white); }
+  .pri-pill.MEDIUM    { background: var(--cm-lavender);  color: var(--cm-purple); }
+  .pri-pill.QUICK_WIN { background: var(--cm-green);     color: var(--cm-off-white); }
+  .action-body { font-size: 12.5px; color: var(--cm-charcoal); line-height: 1.6; }
+  .action-body strong { color: var(--cm-purple); font-weight: 600; }
+  .action-body em { font-style: italic; color: var(--cm-purple); }
+
+  /* BOOK-A-CALL CTA */
+  .book-cta {
+    background: var(--cm-purple); color: var(--cm-off-white);
+    border-radius: 12px; padding: 26px 30px; text-align: center;
+    page-break-inside: avoid; break-inside: avoid; margin-top: 4px;
+  }
+  .book-cta-headline {
+    font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 500;
+    color: var(--cm-off-white); margin-bottom: 8px; line-height: 1.3;
+  }
+  .book-cta-body { font-size: 13px; color: var(--cm-lavender); line-height: 1.6; margin-bottom: 16px; }
+  .book-cta-btn {
+    display: inline-block; background: var(--cm-yellow); color: var(--cm-purple);
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 13px;
+    padding: 12px 26px; border-radius: 999px; text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+
+  .footer {
+    text-align: center; color: var(--cm-body-grey); font-size: 11px;
+    line-height: 1.6; margin-top: 18px;
+  }
+  .footer strong { color: var(--cm-purple); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="header">
+    {% if logo_b64 %}<img class="header-logo" src="data:image/png;base64,{{ logo_b64 }}" alt="Clinic Mastery" />{% endif %}
+    <div class="header-content">
+      <div class="header-eyebrow">WEBSITE AUDIT</div>
+      <h1 class="header-title">{{ clinic_name }}</h1>
+      <div class="header-sub">{{ website_url }}{% if specialty %} · {{ specialty }}{% endif %}{% if location %} · {{ location }}{% endif %}</div>
+      <div class="header-meta">AUDITED {{ audit_date }} · CLINIC MASTERY</div>
+    </div>
+  </header>
+
+  <section class="stat-hero">
+    <div class="stat-eyebrow">{{ hero.eyebrow }}</div>
+    <div class="stat-headline">{{ hero.headline | safe }}</div>
+    <p class="stat-body">{{ hero.body | safe }}</p>
+  </section>
+
+  <div class="section-label">SCORECARD</div>
+  <div class="grid-3">
+    {% for tile in scorecard %}
+    <div class="score-tile {{ tile.status }}">
+      <div class="score-label">{{ tile.label }}</div>
+      <div class="score-tag">{{ tile.text }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-label">SITE SPEED</div>
+  <div class="insight {{ speed.variant }}">
+    <h3>{{ speed.title }}</h3>
+    <ul>
+      {% for b in speed.bullets %}<li>{{ b | safe }}</li>{% endfor %}
+    </ul>
+    <div class="metric-grid">
+      {% for m in speed.metrics %}
+      <div class="metric-cell">
+        <div class="metric-v">{{ m.v }}</div>
+        <div class="metric-l">{{ m.l }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section-label">SEO STRUCTURE</div>
+  <div class="insight {{ seo.variant }}">
+    <h3>{{ seo.title }}</h3>
+    <div class="check-list">
+      {% for c in seo.checks %}
+      <div class="check-row">
+        <div class="ck-detail">
+          <span class="ck-label">{{ c.label }}</span>
+          {{ c.detail | safe }}
+        </div>
+        <span class="ck-pill {{ c.status }}">{{ c.status_text }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section-label">UX &amp; CONVERSION FLOW</div>
+  <div class="insight {{ ux.variant }}">
+    <h3>{{ ux.title }}</h3>
+    <div class="check-list">
+      {% for i in ux.issues %}
+      <div class="issue-row">
+        <div>
+          <div class="iss-title">{{ i.title }}</div>
+          <div class="iss-detail">{{ i.detail | safe }}</div>
+        </div>
+        <span class="iss-pill {{ i.severity }}">{{ i.severity }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section-label">CONTENT &amp; LOCAL AUTHORITY</div>
+  <div class="insight {{ content.variant }}">
+    <h3>{{ content.title }}</h3>
+    <table class="content-table">
+      <thead>
+        <tr><th class="area">Area</th><th class="now">Current state</th><th>Opportunity</th></tr>
+      </thead>
+      <tbody>
+        {% for r in content.rows %}
+        <tr>
+          <td class="area">{{ r.area }}</td>
+          <td class="now">{{ r.now | safe }}</td>
+          <td>{{ r.next | safe }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-label">PRIORITY FIX LIST</div>
+  {% for a in priorities %}
+  <div class="action-row">
+    <div class="action-num">{{ loop.index }}</div>
+    <div class="action-content">
+      <div class="action-head">
+        <div class="action-title">{{ a.title }}</div>
+        <span class="pri-pill {{ a.level | replace(' ', '_') }}">{{ a.level }}</span>
+      </div>
+      <div class="action-body">{{ a.body | safe }}</div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="book-cta">
+    <div class="book-cta-headline">Want to walk through this together?</div>
+    <p class="book-cta-body">Twenty minutes with Pete to walk through this website audit, prioritise the fixes that matter most, and decide what to tackle first.</p>
+    <a class="book-cta-btn" href="https://bookings.clinicmastery.com/pete-flynn-google-ads">Book a 20-minute call</a>
+  </div>
+
+  <div class="footer">
+    <strong>{{ clinic_name }} · Website Audit · {{ audit_date }}</strong><br>
+    Prepared by Clinic Mastery from a manual audit of {{ website_url }}.<br>
+    All recommendations are prioritised by patient acquisition impact. clinicmastery.com
+  </div>
+
+</div>
+</body>
+</html>
+"""
+
+assert "—" not in TEMPLATE_WS_SRC, (
+    "Em dash found in CM website audit template. Brand voice rule: no em dashes."
+)
+
+_TEMPLATE_WS = _jinja_env.from_string(TEMPLATE_WS_SRC)
+
+
+def generate_website_audit(audit_data: dict) -> bytes:
+    """Render the v2 website audit PDF.
+
+    Same input contract as the legacy pdf_report.generate_website_audit:
+    a single dict with the keys documented in run_raisethebar_audit.py.
+    """
+    d = audit_data or {}
+    clinic_name = d.get("clinic_name") or "Your Clinic"
+    audit_date = d.get("audit_date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    website_url = d.get("website_url") or ""
+
+    # Augment status text on each SEO check for the template.
+    seo = _ws_seo_card(d)
+    for c in seo["checks"]:
+        c["status_text"] = _ws_status_text(c["status"])
+
+    ctx = {
+        "logo_b64": _LOGO_B64,
+        "clinic_name": clinic_name,
+        "website_url": website_url,
+        "specialty": d.get("specialty", ""),
+        "location": d.get("location", ""),
+        "audit_date": audit_date,
+        "hero": _ws_hero(d),
+        "scorecard": _ws_scorecard(d),
+        "speed": _ws_speed_card(d),
+        "seo": seo,
+        "ux": _ws_ux_card(d),
+        "content": _ws_content_card(d),
+        "priorities": _ws_priorities(d),
+    }
+
+    html_text = _TEMPLATE_WS.render(**ctx)
+    pdf_bytes = HTML(string=html_text).write_pdf()
+    log.info(
+        "Generated v2 website audit PDF: clinic=%s, %d bytes, %d priorities",
+        clinic_name, len(pdf_bytes), len(ctx["priorities"]),
+    )
+    return pdf_bytes

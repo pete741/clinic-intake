@@ -689,10 +689,42 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   .kpi-sub { font-size: 11px; color: var(--cm-body-grey); line-height: 1.5; }
   .kpi-warn { color: var(--cm-warm-red); font-weight: 600; }
 
-  /* CARD */
+  /* In-doc links: keep the parent's styling, no underline. The PDF
+     viewer still treats them as clickable jumps. */
+  a.jump { color: inherit; text-decoration: none; }
+
+  /* CTA button below the hero stat that jumps to the priority list. */
+  .cta-button {
+    display: block;
+    background: var(--cm-purple);
+    color: var(--cm-yellow);
+    padding: 18px 24px;
+    border-radius: 12px;
+    text-align: center;
+    text-decoration: none;
+    font-family: 'Lexend', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .cta-button .cta-arrow {
+    display: inline-block;
+    margin-left: 10px;
+    color: var(--cm-yellow);
+  }
+
+  /* CARD: keep on one page when it fits on a fresh page.
+     `.card-flow` is the escape hatch for cards that are intentionally
+     longer than a page (e.g. the priority action list with 8 actions). */
   .card {
     background: var(--cm-off-white); border: 1px solid var(--cm-light-grey-2);
     border-radius: 12px; padding: 20px 24px;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .card.card-flow {
+    page-break-inside: auto; break-inside: auto;
   }
   .card-title {
     font-family: 'Lexend', sans-serif; font-size: 15px; font-weight: 500;
@@ -746,8 +778,11 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
     white-space: nowrap; overflow: hidden;
   }
 
-  /* INSIGHT CARDS */
-  .insight-card { border-radius: 12px; padding: 20px 24px; }
+  /* INSIGHT CARDS: keep title, body and table together on one page. */
+  .insight-card {
+    border-radius: 12px; padding: 20px 24px;
+    page-break-inside: avoid; break-inside: avoid;
+  }
   .insight-card.green  { background: var(--cm-green-bg); border: 1px solid var(--cm-green); }
   .insight-card.amber  { background: var(--cm-amber-bg); border: 1px solid var(--cm-orange); }
   .insight-card.blue   { background: var(--cm-blue-bg);  border: 1px solid var(--cm-blue); }
@@ -881,36 +916,40 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
     <div class="stat-body">{{ hero.body | safe }}</div>
   </div>
 
+  <a href="#priorities" class="cta-button">
+    What we would fix first<span class="cta-arrow">&rarr;</span>
+  </a>
+
   <div class="section-group">
     <div class="section-label">The headline numbers · 90 days to {{ data_pulled }}</div>
     <div class="grid-3">
       <div class="kpi-tile featured">
-        <div class="kpi-label">Total spend</div>
+        <div class="kpi-label"><a class="jump" href="#campaigns">Total spend</a></div>
         <div class="kpi-num">{{ total_spend | money_2dp }}</div>
         <div class="kpi-sub">Across {{ num_active_campaigns }} active campaigns over the last 90 days.</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-label">Conversions</div>
+        <div class="kpi-label"><a class="jump" href="#tracking">Conversions</a></div>
         <div class="kpi-num">{{ total_conv | pint }}</div>
         <div class="kpi-sub">At <strong>{{ cost_per_conv | money_2dp }}</strong> per conversion.</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-label">Active campaigns</div>
+        <div class="kpi-label"><a class="jump" href="#visibility">Active campaigns</a></div>
         <div class="kpi-num">{{ num_active_campaigns }}</div>
         <div class="kpi-sub">Search and Performance Max, ranked by spend.</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-label">Wasted spend</div>
+        <div class="kpi-label"><a class="jump" href="#wasted">Wasted spend</a></div>
         <div class="kpi-num">{{ wasted_total | money_2dp }}</div>
         <div class="kpi-sub">{% if wasted_total > 0 %}<span class="kpi-warn">Recoverable.</span> {% endif %}{{ wasted_count }} keywords with $20+ spend and zero conversions.</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-label">Avg quality score</div>
+        <div class="kpi-label"><a class="jump" href="#quality">Avg quality score</a></div>
         <div class="kpi-num">{{ "%.1f"|format(avg_qs) }} / 10</div>
         <div class="kpi-sub">{% if avg_qs and avg_qs < 6 %}<span class="kpi-warn">Below average.</span> Premium CPC on most clicks.{% elif avg_qs >= 7 %}Above average. Maintaining well.{% else %}Room to improve.{% endif %}</div>
       </div>
       <div class="kpi-tile">
-        <div class="kpi-label">Brand spend leak</div>
+        <div class="kpi-label"><a class="jump" href="#brand">Brand spend leak</a></div>
         <div class="kpi-num">{{ brand_spend | money_2dp }}</div>
         <div class="kpi-sub">{{ "%.1f"|format(brand_pct) }}% of budget intercepting people who already chose you.</div>
       </div>
@@ -918,7 +957,7 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   </div>
 
   {% if top_campaigns %}
-  <div class="section-group">
+  <div class="section-group" id="campaigns">
     <div class="section-label">Where the budget went · top {{ top_campaigns|length }} campaign{{ 's' if top_campaigns|length > 1 else '' }}</div>
     <div class="card">
       <div class="card-title">Spend, conversions, and cost per conversion by campaign.</div>
@@ -953,7 +992,7 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   {% endif %}
 
   {% if visibility_rows %}
-  <div class="section-group">
+  <div class="section-group" id="visibility">
     <div class="section-label">Visibility · which auctions you are winning</div>
     <div class="card">
       <div class="card-title">Impression share won, vs share lost to budget and to ad rank.</div>
@@ -988,7 +1027,7 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   {% endif %}
 
   {% if wasted_keywords %}
-  <div class="insight-card amber">
+  <div class="insight-card amber" id="wasted">
     <div class="insight-eyebrow">Wasted spend</div>
     <div class="insight-title">{{ wasted_total | money_2dp }} went to {{ wasted_count }} keyword{{ 's' if wasted_count > 1 else '' }} with zero conversions. Pause them and add the worst as account-level negatives.</div>
     <div class="insight-body">These keywords have spent more than $20 each over the last 90 days without producing a single booking. Most are broad match, which means they are catching adjacent intent that is not converting. The action is to <strong>pause them at the ad-group level and add the high-spend ones as exact-match negatives at the account level</strong> so they do not drift back in via match-type expansion.</div>
@@ -1012,7 +1051,7 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   {% endif %}
 
   {% if irrelevant_terms %}
-  <div class="insight-card amber">
+  <div class="insight-card amber" id="irrelevant">
     <div class="insight-eyebrow">Irrelevant search terms</div>
     <div class="insight-title">{{ irrel_total | money_2dp }} was spent on {{ irrel_count }} search term{{ 's' if irrel_count > 1 else '' }} with zero patient intent.</div>
     <div class="insight-body">These are actual searches that triggered your ads. Most are competitor brand names, NDIS admin queries, or adjacent services that have nothing to do with booking therapy. Each click costs money with no chance of conversion. The fix is one batch job: <strong>add all of them as exact-match negatives at the account level</strong>. Then schedule a 20-minute monthly search-term review so new ones do not accumulate.</div>
@@ -1035,7 +1074,7 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   {% endif %}
 
   {% if brand_spend > 0 %}
-  <div class="insight-card blue">
+  <div class="insight-card blue" id="brand">
     <div class="insight-eyebrow">Brand keyword leak</div>
     <div class="insight-title">In healthcare, brand keyword spend is almost always wasted. {{ brand_spend | money_2dp }} is intercepting people who already chose you.</div>
     <div class="insight-body">Unlike e-commerce, people searching directly for <strong>{{ clinic_name }}</strong> and its variants are existing patients, referrals, or people who already decided to book. They were going to find you anyway via organic results and your Google Business Profile, at zero cost. The fix is to <strong>cap brand keywords inside their own low-budget brand campaign</strong>, or eliminate them entirely from the growth campaigns. Conversion rate will dip in the dashboard, but the real cost per <em>new</em> patient improves.</div>
@@ -1078,14 +1117,14 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   </div>
   {% endif %}
 
-  <div class="insight-card {{ tracking_card.variant }}">
+  <div class="insight-card {{ tracking_card.variant }}" id="tracking">
     <div class="insight-eyebrow">{{ tracking_card.eyebrow }}</div>
     <div class="insight-title">{{ tracking_card.title | safe }}</div>
     <div class="insight-body">{{ tracking_card.body | safe }}</div>
   </div>
 
   {% if qs.has_data %}
-  <div class="card">
+  <div class="card" id="quality">
     <div class="card-title">Quality score is the lever with the most leverage.{% if qs.avg_qs and qs.avg_qs < 6 %} Right now it is dragging.{% endif %}</div>
     <div class="card-sub">Distribution of keywords across QS bands, and the worst performers ranked by spend.</div>
     <table class="mini-table" style="margin-top: 4px;">
@@ -1130,9 +1169,9 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   </div>
   {% endif %}
 
-  <div class="section-group">
+  <div class="section-group" id="priorities">
     <div class="section-label">What we would fix first · ranked by impact</div>
-    <div class="card">
+    <div class="card card-flow">
       {% for a in priorities %}
       <div class="action-row">
         <div class="action-num">{{ loop.index }}</div>

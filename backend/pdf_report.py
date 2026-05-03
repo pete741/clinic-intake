@@ -1214,15 +1214,19 @@ def _negative_keywords(spec_lc: str) -> list[str]:
 
 
 def generate_intake_brief(submission: dict) -> bytes:
+    """Dispatch the growth brief to v2 (HTML+WeasyPrint, new design) or
+    legacy (ReportLab) by env var. Set AUDIT_PDF_VERSION=v2 to enable v2.
+    Same flag as the audit so they ship together.
     """
-    Generates a short 1–2 page brief from intake form data alone.
-    Used when a clinic skips Google Ads access or doesn't run Google Ads.
+    if os.environ.get("AUDIT_PDF_VERSION", "").strip().lower() in ("v2", "2", "new"):
+        from pdf_report_v2 import generate_intake_brief as _v2_brief
+        return _v2_brief(submission)
+    return _generate_intake_brief_legacy(submission)
 
-    Args:
-        submission: The raw intake form data dict (matches IntakeSubmission fields)
 
-    Returns:
-        PDF as bytes.
+def _generate_intake_brief_legacy(submission: dict) -> bytes:
+    """
+    Original ReportLab intake brief. Kept as fallback during the v2 rollout.
     """
     buffer = io.BytesIO()
     clinic_name = submission.get("clinic_name", "Unknown Clinic")

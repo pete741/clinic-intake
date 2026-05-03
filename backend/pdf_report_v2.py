@@ -1275,3 +1275,756 @@ def generate_pdf(summary: dict, clinic_name: str) -> bytes:
 
 def generator_version() -> str:
     return GENERATOR_VERSION
+
+
+# ─── INTAKE BRIEF v2 ─────────────────────────────────────────────────────────
+# A separate growth-focused PDF for clinics that submitted the intake form
+# but do not run Google Ads. Same brand design system as the audit; different
+# content (revenue context, keyword targets, suggested campaign structure,
+# next steps), all derived from the form data alone.
+
+# Keyword helpers live in pdf_report.py — reuse them rather than duplicating.
+def _kw_helpers():
+    from pdf_report import _condition_keywords, _service_keywords, _negative_keywords
+    return _condition_keywords, _service_keywords, _negative_keywords
+
+
+_SPEC_ABBREV = {
+    "physiotherapy": "physio", "chiropractic": "chiropractor", "chiro": "chiropractor",
+    "psychology": "psychologist", "osteopathy": "osteopath", "osteo": "osteopath",
+    "podiatry": "podiatrist", "naturopathy": "naturopath", "dentistry": "dentist",
+    "dental": "dentist", "optometry": "optometrist", "dietitian": "dietitian",
+    "speech pathology": "speech pathologist",
+    "occupational therapy": "occupational therapist",
+}
+
+
+def _spec_abbrev(spec: str) -> str:
+    spec_lc = (spec or "").lower()
+    for k, v in _SPEC_ABBREV.items():
+        if k in spec_lc:
+            return v
+    return spec_lc.split()[0] if spec_lc else "clinic"
+
+
+def _brief_hero(s: dict) -> dict:
+    """Top-of-doc narrative for the intake brief. Adapts to the data."""
+    fee = float(s.get("avg_appointment_fee") or 0)
+    visits = float(s.get("avg_visits_per_patient") or 0)
+    ltv = fee * visits
+    new_pts = int(s.get("new_patients_per_month") or 0)
+    monthly_rev = ltv * new_pts
+    annual_per_extra = ltv * 12
+    goal = (s.get("main_goal") or "").strip().rstrip(".")
+    clinic = s.get("clinic_name") or "the clinic"
+
+    headline = (
+        f"At a {_fmt_money_2dp(ltv)} estimated patient lifetime value, "
+        f"{new_pts} new patients a month is "
+        f"<strong>{_fmt_money_round(monthly_rev)}</strong> of ongoing revenue. "
+        f"Each additional patient per month is worth around "
+        f"<strong>{_fmt_money_round(annual_per_extra)}</strong> a year."
+    )
+
+    body_parts = [
+        f"This brief is built from {clinic}'s intake form alone. "
+        f"Google Ads is not currently running, so there is no account to audit. "
+        f"What follows is the growth blueprint we would put in front of a clinic at this stage:"
+        f" the revenue maths, the keyword groups we would target,"
+        f" a starting campaign structure, and the next steps."
+    ]
+    if goal:
+        body_parts.append(
+            f"The stated goal is <strong>{goal.lower() if not goal.isupper() else goal}</strong>, "
+            "and every recommendation below is filtered through that."
+        )
+
+    return {"headline": headline, "body": " ".join(body_parts)}
+
+
+def _brief_revenue_metrics(s: dict) -> dict:
+    fee = float(s.get("avg_appointment_fee") or 0)
+    visits = float(s.get("avg_visits_per_patient") or 0)
+    ltv = fee * visits
+    new_pts = int(s.get("new_patients_per_month") or 0)
+    monthly_rev = ltv * new_pts
+    ad_spend = float(s.get("monthly_ad_spend") or 0)
+    return {
+        "fee": fee, "visits": visits, "ltv": ltv,
+        "new_pts": new_pts, "monthly_rev": monthly_rev,
+        "ad_spend": ad_spend,
+    }
+
+
+def _brief_keyword_groups(s: dict) -> list[dict]:
+    """Returns four keyword groups: location, condition, service, negatives."""
+    cond_kw, serv_kw, neg_kw = _kw_helpers()
+    suburb = (s.get("suburb") or "").strip()
+    state = (s.get("state") or "").strip()
+    spec = (s.get("primary_specialty") or "").strip()
+    spec_lc = spec.lower()
+    appt = s.get("appointment_types_to_grow") or ""
+    abbrev = _spec_abbrev(spec)
+
+    return [
+        {
+            "variant": "green",
+            "label": "Location intent · highest conversion",
+            "match": "Exact / Phrase",
+            "keywords": [
+                f"{abbrev} {suburb.lower()}",
+                f"{abbrev} near me",
+                f"best {abbrev} {suburb.lower()}",
+                f"{abbrev} {state.lower()}",
+                f"{spec_lc} clinic {suburb.lower()}",
+            ],
+            "note": (
+                "Searchers with strong local intent. They already know what they need "
+                "and are looking for the closest place to get it. Highest conversion rate, "
+                "tight match types, expect to spend more per click but earn it back fast."
+            ),
+        },
+        {
+            "variant": "blue",
+            "label": "Condition / symptom · high volume",
+            "match": "Phrase",
+            "keywords": cond_kw(spec_lc, suburb, appt),
+            "note": (
+                "Patients describing the problem, not the solution. Higher search volume, "
+                "slightly lower intent, and the search terms report needs weekly review to "
+                "block irrelevant traffic. Where the brand-awareness gains live."
+            ),
+        },
+        {
+            "variant": "amber",
+            "label": "Service-specific · known want",
+            "match": "Exact / Phrase",
+            "keywords": serv_kw(spec_lc, suburb, appt),
+            "note": (
+                "Built from the appointment types you want to grow. Patients searching "
+                "this already know the service. Smaller volume, very high intent."
+            ),
+        },
+        {
+            "variant": "warn",
+            "label": "Negative keywords · block before launch",
+            "match": "Exact negative",
+            "keywords": neg_kw(spec_lc),
+            "note": (
+                "Add these as account-level negatives on day one. Blocks job seekers, "
+                "students, free-service hunters, and competitor research traffic that would "
+                "otherwise eat budget without ever booking."
+            ),
+        },
+    ]
+
+
+def _brief_campaigns(s: dict) -> list[dict]:
+    """Returns the suggested campaign structure rows."""
+    spec = (s.get("primary_specialty") or "").strip()
+    spec_lc = spec.lower()
+    suburb = (s.get("suburb") or "").strip()
+    appt = s.get("appointment_types_to_grow") or ""
+    abbrev = _spec_abbrev(spec)
+    ad_spend = float(s.get("monthly_ad_spend") or 0)
+    cond_kw, _, _ = _kw_helpers()
+
+    # 70% / 30% split between location-core and condition campaigns
+    core_budget = ad_spend * 0.70 if ad_spend else None
+    cond_budget = ad_spend * 0.30 if ad_spend else None
+
+    return [
+        {
+            "name": f"Search · {spec} · {suburb} (Core)",
+            "budget": _fmt_money_round(core_budget) + "/mo" if core_budget else "≈ 70% of budget",
+            "type": "Search",
+            "bidding": "Maximise Conversions, switch to Target CPA after 30 conversions",
+            "ad_groups": [
+                f"{abbrev} {suburb.lower()} · exact location terms",
+                f"{abbrev} near me · proximity intent",
+                f"best {abbrev} · quality seekers",
+            ],
+            "note": (
+                "Tightest control. Exact and phrase match only. "
+                "Enable location and call extensions on day one."
+            ),
+        },
+        {
+            "name": f"Search · {spec} · Condition / symptom",
+            "budget": _fmt_money_round(cond_budget) + "/mo" if cond_budget else "≈ 30% of budget",
+            "type": "Search",
+            "bidding": "Maximise Clicks initially, then Maximise Conversions",
+            "ad_groups": [g for g in cond_kw(spec_lc, suburb, appt)[:3]],
+            "note": (
+                "Higher volume, lower intent. Review the search terms report weekly "
+                "and add negatives aggressively. Separate ad groups per condition."
+            ),
+        },
+    ]
+
+
+def _brief_next_steps(s: dict) -> list[dict]:
+    clinic = s.get("clinic_name") or "the clinic"
+    goal = (s.get("main_goal") or "").strip()
+    new_pts = int(s.get("new_patients_per_month") or 0)
+    ad_spend = float(s.get("monthly_ad_spend") or 0)
+    suburb = s.get("suburb") or ""
+    state = s.get("state") or ""
+    spec = s.get("primary_specialty") or ""
+
+    steps = []
+    steps.append({
+        "title": "Schedule the strategy call",
+        "body": (
+            f"Walk {clinic} through this brief and pressure-test the goal "
+            f'("{goal}"). Identify the single biggest growth lever before any '
+            "campaign goes live."
+        ),
+    })
+    steps.append({
+        "title": "Benchmark current spend against market",
+        "body": (
+            f"Current monthly Google Ads spend is "
+            f"<strong>{_fmt_money_round(ad_spend)}</strong> for "
+            f"<strong>{new_pts}</strong> new patients a month. "
+            f"Run a market-rate comparison for {spec} clinics in "
+            f"{suburb}, {state} to confirm the budget envelope is realistic."
+        ),
+    })
+    steps.append({
+        "title": "Build the day-one negatives list",
+        "body": (
+            "Before any campaign goes live, the negatives in the warning card "
+            "above need to be loaded as account-level exact-match negatives. "
+            "This step prevents most of the wasted spend we usually see in the "
+            "first 30 days."
+        ),
+    })
+    steps.append({
+        "title": "Stand up tracking before launch",
+        "body": (
+            "Confirm a booking-confirmation conversion action is firing in Google "
+            "Ads (not a button click or scroll), the GA4 link is healthy, and call "
+            "tracking is in place. Without honest tracking the rest of the system "
+            "is optimising blind."
+        ),
+    })
+    steps.append({
+        "title": "Launch the core campaign first, watch for two weeks",
+        "body": (
+            "Spin up the location-intent core campaign on a controlled budget. "
+            "Hold the condition campaign back for two weeks so we can baseline "
+            "cost per booking on the highest-intent traffic before introducing "
+            "more variability."
+        ),
+    })
+    return steps
+
+
+# ─── INTAKE BRIEF TEMPLATE ───────────────────────────────────────────────────
+
+TEMPLATE_BRIEF_SRC = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ clinic_name }} · Clinic Growth Brief</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;700&family=Work+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --cm-purple:       #2E0A78;
+    --cm-yellow:       #F0D140;
+    --cm-charcoal:     #2A2B2B;
+    --cm-off-white:    #FEFEFE;
+    --cm-body-grey:    #6E6E6E;
+    --cm-orange:       #FF8E21;
+    --cm-blue:         #24A3FF;
+    --cm-magenta:      #A1129E;
+    --cm-warm-red:     #FF7777;
+    --cm-silver-grey:  #ABB1BA;
+    --cm-light-grey-1: #F5F5F7;
+    --cm-light-grey-2: #E3E5E8;
+    --cm-light-grey-3: #F9F9F9;
+    --cm-divider:      #EDEDED;
+    --cm-lavender:     #E2D4FF;
+    --cm-green:        #2E8B4A;
+    --cm-green-bg:     #E5F4EA;
+    --cm-amber-bg:     #FFE6CC;
+    --cm-blue-bg:      #DEF1FF;
+    --cm-warn-bg:      #FFE2E2;
+  }
+
+  @page { size: A4; margin: 14mm 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--cm-light-grey-1);
+    color: var(--cm-charcoal);
+    padding: 40px 24px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page { max-width: 760px; margin: 0 auto; }
+  .page > * + * { margin-top: 12px; }
+
+  /* HEADER */
+  .header {
+    background: var(--cm-purple);
+    border-radius: 14px;
+    padding: 28px 32px;
+    color: var(--cm-off-white);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 26px;
+  }
+  .header::after {
+    content: ""; position: absolute; top: -40px; right: -40px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(240, 209, 64, 0.18) 0%, rgba(240, 209, 64, 0) 70%);
+    pointer-events: none;
+  }
+  .header-logo { height: 68px; width: auto; flex-shrink: 0; position: relative; z-index: 1; }
+  .header-content { flex: 1; min-width: 0; position: relative; z-index: 1; }
+  .header-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--cm-yellow); margin-bottom: 10px;
+  }
+  .header-title {
+    font-family: 'Lexend', sans-serif; font-size: 28px; font-weight: 500;
+    color: var(--cm-off-white); margin-bottom: 6px; letter-spacing: -0.01em; line-height: 1.2;
+  }
+  .header-sub { font-size: 14px; color: var(--cm-lavender); margin-bottom: 4px; }
+  .header-meta {
+    font-size: 11px; color: var(--cm-yellow); margin-top: 14px;
+    letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700;
+  }
+
+  .section-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--cm-orange);
+    margin-bottom: 8px; margin-top: 8px;
+    break-after: avoid; page-break-after: avoid;
+  }
+  .section-group > * + * { margin-top: 8px; }
+
+  /* HERO STAT */
+  .stat-hero { background: var(--cm-lavender); border-radius: 12px; padding: 24px 28px; }
+  .stat-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--cm-magenta); margin-bottom: 10px;
+  }
+  .stat-headline {
+    font-family: 'Lexend', sans-serif; font-size: 20px; font-weight: 500;
+    color: var(--cm-purple); margin-bottom: 12px; line-height: 1.35; letter-spacing: -0.01em;
+  }
+  .stat-body { font-size: 13px; color: var(--cm-charcoal); line-height: 1.65; }
+  .stat-body strong, .stat-headline strong { color: var(--cm-purple); font-weight: 600; }
+
+  /* CTA button */
+  .cta-button {
+    display: block;
+    background: var(--cm-purple);
+    color: var(--cm-yellow);
+    padding: 18px 24px;
+    border-radius: 12px;
+    text-align: center;
+    text-decoration: none;
+    font-family: 'Lexend', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .cta-button .cta-arrow { display: inline-block; margin-left: 10px; color: var(--cm-yellow); }
+
+  /* KPI GRID */
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  /* Keep the whole 6-tile KPI grid on one page when it fits. */
+  .grid-keep-together { page-break-inside: avoid; break-inside: avoid; }
+  .kpi-tile {
+    display: block;
+    background: var(--cm-off-white); border: 1px solid var(--cm-light-grey-2);
+    border-radius: 10px; padding: 18px 20px;
+    text-align: center;
+    text-decoration: none;
+    color: inherit;
+  }
+  .kpi-tile.featured {
+    background: linear-gradient(135deg, var(--cm-purple) 0%, #4419a8 100%);
+    border-color: var(--cm-purple);
+  }
+  .kpi-tile.featured .kpi-label { color: var(--cm-yellow); }
+  .kpi-tile.featured .kpi-num { color: var(--cm-off-white); }
+  .kpi-tile.featured .kpi-sub { color: var(--cm-lavender); }
+  .kpi-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--cm-orange); margin-bottom: 8px;
+  }
+  .kpi-num {
+    font-family: 'Lexend', sans-serif; font-size: 24px; font-weight: 700;
+    color: var(--cm-purple); line-height: 1.1; margin-bottom: 6px; letter-spacing: -0.01em;
+  }
+  .kpi-sub { font-size: 11px; color: var(--cm-body-grey); line-height: 1.5; }
+
+  /* CARD */
+  .card {
+    background: var(--cm-off-white); border: 1px solid var(--cm-light-grey-2);
+    border-radius: 12px; padding: 20px 24px;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .card.card-flow { page-break-inside: auto; break-inside: auto; }
+  .card-title {
+    font-family: 'Lexend', sans-serif; font-size: 15px; font-weight: 500;
+    color: var(--cm-charcoal); margin-bottom: 4px;
+  }
+  .card-sub { font-size: 12px; color: var(--cm-body-grey); margin-bottom: 16px; }
+
+  /* SNAPSHOT (clinic basics, two-column key/value) */
+  .snapshot-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    column-gap: 32px;
+    margin-top: 4px;
+  }
+  .snap-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 0.5px solid var(--cm-divider);
+    align-items: baseline;
+  }
+  .snap-row:nth-last-child(-n+2) { border-bottom: none; }
+  .snap-row.full { grid-column: 1 / -1; }
+  .snap-key {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--cm-body-grey);
+  }
+  .snap-val {
+    font-family: 'Lexend', sans-serif; font-size: 13px; font-weight: 500;
+    color: var(--cm-charcoal); text-align: right; word-break: break-word;
+  }
+
+  /* INSIGHT CARDS */
+  .insight-card {
+    border-radius: 12px; padding: 20px 24px;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .insight-card.green  { background: var(--cm-green-bg); border: 1px solid var(--cm-green); }
+  .insight-card.amber  { background: var(--cm-amber-bg); border: 1px solid var(--cm-orange); }
+  .insight-card.blue   { background: var(--cm-blue-bg);  border: 1px solid var(--cm-blue); }
+  .insight-card.warn   { background: var(--cm-warn-bg);  border: 1px solid var(--cm-warm-red); }
+  .insight-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .insight-card.green .insight-eyebrow { color: var(--cm-green); }
+  .insight-card.amber .insight-eyebrow { color: var(--cm-orange); }
+  .insight-card.blue  .insight-eyebrow { color: var(--cm-blue); }
+  .insight-card.warn  .insight-eyebrow { color: var(--cm-warm-red); }
+  .insight-title {
+    font-family: 'Lexend', sans-serif; font-size: 15px; font-weight: 500;
+    color: var(--cm-charcoal); margin-bottom: 10px; line-height: 1.4;
+  }
+  .insight-body { font-size: 13px; color: var(--cm-charcoal); line-height: 1.65; }
+  .insight-body strong { font-weight: 600; }
+
+  /* keyword pills inside an insight card */
+  .kw-list {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .kw-pill {
+    background: rgba(255,255,255,0.7);
+    border: 0.5px solid var(--cm-divider);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: 'Lexend', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--cm-charcoal);
+  }
+  .kw-meta {
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--cm-body-grey);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .kw-meta strong { color: var(--cm-charcoal); font-weight: 600; }
+
+  /* Campaign rows (HTML table, identical pattern to audit) */
+  table.row-block {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    border-bottom: 0.5px solid var(--cm-divider);
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  table.row-block:last-of-type { border-bottom: none; }
+  table.row-block td { vertical-align: top; padding: 14px 0; }
+  table.row-block td.row-info { padding-right: 16px; }
+  table.row-block td.row-stat {
+    width: 100px; text-align: right; padding-left: 6px;
+  }
+  .row-name {
+    font-family: 'Lexend', sans-serif; font-size: 13px; font-weight: 500;
+    color: var(--cm-charcoal); margin-bottom: 6px;
+  }
+  .row-meta { font-size: 11px; color: var(--cm-body-grey); line-height: 1.55; }
+  .row-meta strong { color: var(--cm-charcoal); font-weight: 500; }
+  .row-stat-num {
+    font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 700;
+    color: var(--cm-purple); line-height: 1.1; white-space: nowrap;
+  }
+  .row-stat-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--cm-body-grey);
+    margin-top: 4px; line-height: 1.25; white-space: nowrap;
+  }
+  .ag-list {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--cm-body-grey);
+    line-height: 1.55;
+  }
+  .ag-list .ag {
+    display: block;
+    padding: 2px 0 2px 12px;
+    position: relative;
+  }
+  .ag-list .ag::before {
+    content: "·";
+    position: absolute;
+    left: 0;
+    color: var(--cm-purple);
+    font-weight: 700;
+  }
+
+  /* Action rows (next steps) */
+  .action-row {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 14px 0; border-bottom: 0.5px solid var(--cm-divider);
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .action-row:last-child { border-bottom: none; padding-bottom: 4px; }
+  .action-row:first-child { padding-top: 4px; }
+  .action-num {
+    font-family: 'Lexend', sans-serif; font-size: 13px; font-weight: 700;
+    color: var(--cm-purple); background: var(--cm-lavender);
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .action-content {
+    flex: 1;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .action-title {
+    font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 500;
+    color: var(--cm-charcoal); margin-bottom: 4px;
+  }
+  .action-body { font-size: 12px; color: var(--cm-body-grey); line-height: 1.6; }
+  .action-body strong { color: var(--cm-charcoal); font-weight: 500; }
+
+  .footer {
+    margin-top: 16px; padding: 18px 24px; background: var(--cm-off-white);
+    border: 1px solid var(--cm-light-grey-2); border-radius: 12px;
+    text-align: center; font-size: 11px; color: var(--cm-body-grey); line-height: 1.6;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .footer strong { color: var(--cm-purple); font-weight: 600; }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .page { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    {% if logo_b64 %}
+      <img src="data:image/png;base64,{{ logo_b64 }}" alt="Clinic Mastery" class="header-logo">
+    {% endif %}
+    <div class="header-content">
+      <div class="header-eyebrow">Clinic Growth Brief</div>
+      <div class="header-title">{{ clinic_name }}</div>
+      <div class="header-sub">{{ submitted_label }}</div>
+      <div class="header-meta">Prepared by Clinic Mastery</div>
+    </div>
+  </div>
+
+  <div class="stat-hero">
+    <div class="stat-eyebrow">The growth picture</div>
+    <div class="stat-headline">{{ hero.headline | safe }}</div>
+    <div class="stat-body">{{ hero.body | safe }}</div>
+  </div>
+
+  <a href="#next-steps" class="cta-button">
+    What we would do first<span class="cta-arrow">&rarr;</span>
+  </a>
+
+  <div class="section-group">
+    <div class="section-label">The clinic at a glance</div>
+    <div class="card">
+      <div class="snapshot-grid">
+        <div class="snap-row"><div class="snap-key">Specialty</div><div class="snap-val">{{ submission.primary_specialty or "-" }}</div></div>
+        <div class="snap-row"><div class="snap-key">Location</div><div class="snap-val">{{ submission.suburb or "-" }}{% if submission.state %}, {{ submission.state }}{% endif %}</div></div>
+        <div class="snap-row"><div class="snap-key">Practitioners</div><div class="snap-val">{{ submission.num_practitioners or "-" }}</div></div>
+        <div class="snap-row"><div class="snap-key">Website</div><div class="snap-val">{{ submission.website_url or "-" }}</div></div>
+        <div class="snap-row"><div class="snap-key">Email</div><div class="snap-val">{{ submission.email or "-" }}</div></div>
+        <div class="snap-row"><div class="snap-key">Phone</div><div class="snap-val">{{ submission.phone or "-" }}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-group revenue-section">
+    <div class="section-label">The revenue maths</div>
+    <div class="grid-3 grid-keep-together">
+      <a class="kpi-tile featured" href="#kw-targets">
+        <div class="kpi-label">Patient LTV</div>
+        <div class="kpi-num">{{ rev.ltv | money_round }}</div>
+        <div class="kpi-sub">{{ rev.fee | money_round }} per visit · {{ "%.1f"|format(rev.visits) }} visits per patient.</div>
+      </a>
+      <a class="kpi-tile" href="#campaigns">
+        <div class="kpi-label">New patients / month</div>
+        <div class="kpi-num">{{ rev.new_pts }}</div>
+        <div class="kpi-sub">Coming through the door from all sources.</div>
+      </a>
+      <a class="kpi-tile" href="#campaigns">
+        <div class="kpi-label">Monthly new-patient revenue</div>
+        <div class="kpi-num">{{ rev.monthly_rev | money_round }}</div>
+        <div class="kpi-sub">LTV times new patients. The number every lever moves.</div>
+      </a>
+      <a class="kpi-tile" href="#kw-targets">
+        <div class="kpi-label">Avg appointment fee</div>
+        <div class="kpi-num">{{ rev.fee | money_round }}</div>
+        <div class="kpi-sub">As reported on the intake form.</div>
+      </a>
+      <a class="kpi-tile" href="#kw-targets">
+        <div class="kpi-label">Visits per patient</div>
+        <div class="kpi-num">{{ "%.1f"|format(rev.visits) }}</div>
+        <div class="kpi-sub">Average treatment journey length.</div>
+      </a>
+      <a class="kpi-tile" href="#campaigns">
+        <div class="kpi-label">Current ad spend</div>
+        <div class="kpi-num">{{ rev.ad_spend | money_round }}</div>
+        <div class="kpi-sub">Monthly Google Ads spend at intake.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section-group" id="kw-targets">
+    <div class="section-label">Keyword targets · ranked by intent</div>
+    {% for g in kw_groups %}
+    <div class="insight-card {{ g.variant }}">
+      <div class="insight-eyebrow">{{ g.label }}</div>
+      <div class="insight-body">{{ g.note }}</div>
+      <div class="kw-list">
+        {% for kw in g.keywords[:8] %}
+        <span class="kw-pill">{{ kw }}</span>
+        {% endfor %}
+      </div>
+      <div class="kw-meta">Match type · <strong>{{ g.match }}</strong></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-group" id="campaigns">
+    <div class="section-label">Suggested campaign structure · first 90 days</div>
+    <div class="card">
+      <div class="card-title">Two campaigns, two intents, separated by design.</div>
+      <div class="card-sub">A well-structured account lets Google optimise each intent independently. Below is how we would set the first 90 days.</div>
+      {% for c in campaigns %}
+      <table class="row-block">
+        <tr>
+          <td class="row-info">
+            <div class="row-name">{{ c.name }}</div>
+            <div class="row-meta">
+              <strong>{{ c.type }}</strong> · {{ c.bidding }}
+            </div>
+            <div class="ag-list">
+              {% for ag in c.ad_groups %}
+              <span class="ag">{{ ag }}</span>
+              {% endfor %}
+            </div>
+            <div class="row-meta" style="margin-top: 8px;">{{ c.note }}</div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ c.budget }}</div>
+            <div class="row-stat-label">Budget</div>
+          </td>
+        </tr>
+      </table>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="section-group" id="next-steps">
+    <div class="section-label">What we would do first · in order</div>
+    <div class="card card-flow">
+      {% for a in next_steps %}
+      <div class="action-row">
+        <div class="action-num">{{ loop.index }}</div>
+        <div class="action-content">
+          <div class="action-title">{{ a.title }}</div>
+          <div class="action-body">{{ a.body | safe }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="footer">
+    <strong>{{ clinic_name }} · Clinic Growth Brief · {{ submitted_label }}</strong><br>
+    Confidential. Prepared by Clinic Mastery from intake form data alone.<br>
+    No Google Ads account access was required to generate this brief.
+  </div>
+
+</div>
+</body>
+</html>
+"""
+
+assert "—" not in TEMPLATE_BRIEF_SRC, (
+    "Em dash found in CM intake brief template. Brand voice rule: no em dashes."
+)
+
+_TEMPLATE_BRIEF = _jinja_env.from_string(TEMPLATE_BRIEF_SRC)
+
+
+def generate_intake_brief(submission: dict) -> bytes:
+    """Render the growth brief PDF for a clinic that submitted the intake
+    form but does not run Google Ads.
+
+    Same output contract as pdf_report.generate_intake_brief (PDF bytes).
+    """
+    s = submission or {}
+    clinic_name = s.get("clinic_name") or "Your Clinic"
+    submitted_label = "Received " + datetime.now(timezone.utc).strftime("%-d %B %Y")
+
+    ctx = {
+        "logo_b64": _LOGO_B64,
+        "clinic_name": clinic_name,
+        "submitted_label": submitted_label,
+        "submission": s,
+        "hero": _brief_hero(s),
+        "rev": _brief_revenue_metrics(s),
+        "kw_groups": _brief_keyword_groups(s),
+        "campaigns": _brief_campaigns(s),
+        "next_steps": _brief_next_steps(s),
+    }
+
+    html_text = _TEMPLATE_BRIEF.render(**ctx)
+    pdf_bytes = HTML(string=html_text).write_pdf()
+    log.info(
+        "Generated v2 intake brief PDF: clinic=%s, %d bytes, %d kw groups, %d steps",
+        clinic_name, len(pdf_bytes), len(ctx["kw_groups"]), len(ctx["next_steps"]),
+    )
+    return pdf_bytes

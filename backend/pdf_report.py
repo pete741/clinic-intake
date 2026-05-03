@@ -1110,7 +1110,7 @@ A few things that stood out:
 
 I'd love to walk through it with you on a quick call - usually about 20 minutes and you'll leave with a clear picture of what's worth doing first.
 
-Are you free [suggest a time]?
+Find a time that suits you here: https://bookings.clinicmastery.com/pete-flynn-google-ads
 
 Pete
 Clinic Mastery
@@ -1155,6 +1155,31 @@ def _condition_keywords(spec_lc: str, suburb: str, appt: str) -> list[str]:
             f"teeth whitening {suburb_lc}", "dental implants",
             "broken tooth", "dental check up",
         ],
+        "naturopath": [
+            f"naturopath {suburb_lc}", "gut health specialist",
+            "hormone imbalance treatment", "chronic fatigue help",
+            "ibs treatment naturopath", "womens health naturopath",
+        ],
+        "nutrition": [
+            f"nutritionist {suburb_lc}", "weight loss program",
+            "gut health nutritionist", "fatigue nutrition",
+            "fertility nutritionist", "ibs nutritionist",
+        ],
+        "dietitian": [
+            f"dietitian {suburb_lc}", "weight management dietitian",
+            "diabetes dietitian", "ibs dietitian",
+            "ndis dietitian", "paediatric dietitian",
+        ],
+        "speech": [
+            f"speech pathologist {suburb_lc}", "speech therapy for kids",
+            "stuttering therapy", "swallowing therapy",
+            "ndis speech pathology", "adult speech therapy",
+        ],
+        "occupational": [
+            f"occupational therapist {suburb_lc}", "ndis occupational therapy",
+            "paediatric occupational therapy", "sensory processing therapy",
+            "hand therapy", "adult occupational therapy",
+        ],
     }
     for key, kws in base.items():
         if key in spec_lc:
@@ -1185,6 +1210,13 @@ def _service_keywords(spec_lc: str, suburb: str, appt: str) -> list[str]:
         "mental health": ["mental health therapy", "NDIS psychology"],
         "anxiety": ["anxiety specialist", "CBT therapy near me"],
         "depression": ["depression counselling", "mindfulness therapy"],
+        "naturopath": [f"naturopath consultation {suburb_lc}", "gut health consultation",
+                       "hormone testing naturopath", "fertility naturopath",
+                       "thyroid naturopath", "perimenopause naturopath"],
+        "herbal": ["herbal medicine consultation", "herbal medicine naturopath"],
+        "iridology": ["iridology consultation", f"iridologist {suburb_lc}"],
+        "nutrition": [f"nutritionist consultation {suburb_lc}", "meal planning nutritionist",
+                      "weight loss nutritionist"],
     }
     for trigger, kws in service_map.items():
         if trigger in appt_lc:

@@ -2336,6 +2336,9 @@ def _ws_speed_card(d: dict) -> dict:
         {"v": str(css), "l": "CSS sheets"},
         {"v": "Yes" if has_webp else "No", "l": "WebP"},
     ]
+    # Pre-chunk into 3-cell rows so the template can render a real HTML
+    # table that WeasyPrint can paginate cleanly between rows.
+    metric_rows = [metrics[i:i + 3] for i in range(0, len(metrics), 3)]
 
     return {
         "variant": _STATUS_VARIANT[status],
@@ -2346,6 +2349,7 @@ def _ws_speed_card(d: dict) -> dict:
         ),
         "bullets": bullets,
         "metrics": metrics,
+        "metric_rows": metric_rows,
     }
 
 
@@ -2716,7 +2720,11 @@ def _ws_capture_screenshots(url: str, audit_data: dict) -> list[dict]:
                 desk_ctx = browser.new_context(viewport={"width": 1440, "height": 900})
                 desk_page = desk_ctx.new_page()
                 try:
-                    desk_page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    desk_page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    try:
+                        desk_page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
                     desk_page.wait_for_timeout(1500)
                     png = desk_page.screenshot(full_page=False)
                     desk_caption_parts = []
@@ -2738,22 +2746,26 @@ def _ws_capture_screenshots(url: str, audit_data: dict) -> list[dict]:
                         "b64": _to_jpeg_b64(png, 760),
                         "caption": desk_caption,
                         "viewport": "DESKTOP · 1440 × 900",
+                        "kind": "desktop",
                     })
                 except Exception as exc:
                     log.warning("Desktop screenshot failed: %s", exc)
                 desk_ctx.close()
 
                 # ── Mobile homepage ─────────────────────────────────────────
-                mob_ctx = browser.new_context(
-                    viewport={"width": 390, "height": 844},
-                    device_scale_factor=2,
-                    is_mobile=True,
-                    has_touch=True,
-                )
+                # No is_mobile / has_touch / 2x scale: Wix and some other CMSs
+                # serve a different/slower page on mobile UAs, which led to
+                # blank screenshots. Just resizing the viewport to 390 still
+                # exposes responsive bugs without the UA overhead.
+                mob_ctx = browser.new_context(viewport={"width": 390, "height": 844})
                 mob_page = mob_ctx.new_page()
                 try:
-                    mob_page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                    mob_page.wait_for_timeout(1500)
+                    mob_page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    try:
+                        mob_page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
+                    mob_page.wait_for_timeout(2000)
                     body_w = mob_page.evaluate("() => document.body.scrollWidth")
                     has_hscroll = body_w > 390
                     png = mob_page.screenshot(full_page=False)
@@ -2773,9 +2785,13 @@ def _ws_capture_screenshots(url: str, audit_data: dict) -> list[dict]:
                     else:
                         mob_caption = "Mobile homepage above the fold at a 390 pixel viewport."
                     shots.append({
-                        "b64": _to_jpeg_b64(png, 760),
+                        # Mobile shot is rendered phone-sized via .evidence-img.mobile
+                        # so it actually looks like a phone screenshot. 400px source
+                        # width is enough at 300px display.
+                        "b64": _to_jpeg_b64(png, 400),
                         "caption": mob_caption,
                         "viewport": "MOBILE · 390 × 844",
+                        "kind": "mobile",
                     })
                 except Exception as exc:
                     log.warning("Mobile screenshot failed: %s", exc)
@@ -2811,6 +2827,7 @@ def _ws_capture_screenshots(url: str, audit_data: dict) -> list[dict]:
                                 "b64": _to_jpeg_b64(png, 760),
                                 "caption": booking_caption,
                                 "viewport": f"DESKTOP · {path}",
+                                "kind": "desktop",
                             })
                             cctx.close()
                             break
@@ -3148,6 +3165,8 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   .insight h3 {
     font-family: 'Lexend', sans-serif; font-size: 14.5px; font-weight: 500;
     margin-bottom: 8px; line-height: 1.4;
+    /* Heading must stay with at least the next chunk, no orphan headers. */
+    break-after: avoid; page-break-after: avoid;
   }
   .insight.green h3 { color: var(--cm-green); }
   .insight.amber h3 { color: var(--cm-orange); }
@@ -3160,10 +3179,23 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   .insight strong { font-weight: 600; }
   .insight em { font-style: italic; color: var(--cm-purple); }
 
-  /* SPEED METRIC GRID INSIDE INSIGHT */
-  .metric-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    margin-top: 12px;
+  /* SPEED METRIC GRID INSIDE INSIGHT.
+     HTML table for reliable pagination (WeasyPrint splits between rows
+     but never inside a row). Visual cell styling lives on a nested
+     .metric-cell div so the table cell can use padding for the inter-cell
+     gap without that padding leaking into the cell's border-box. Earlier
+     attempt used border-spacing which sneaks past the parent's right
+     padding and causes the rightmost column to overflow the amber card. */
+  table.metric-grid {
+    width: 100%; margin-top: 12px;
+    border-collapse: collapse; border-spacing: 0;
+    table-layout: fixed;
+  }
+  table.metric-grid td {
+    width: 33.333%;
+    padding: 4px;
+    vertical-align: middle;
+    break-inside: avoid; page-break-inside: avoid;
   }
   .metric-cell {
     background: var(--cm-off-white);
@@ -3187,6 +3219,7 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
     display: grid; grid-template-columns: 1fr auto;
     gap: 12px; padding: 10px 0;
     border-bottom: 1px solid rgba(0,0,0,0.07);
+    break-inside: avoid; page-break-inside: avoid;
   }
   .check-row:last-child { border-bottom: none; }
   .check-row .ck-detail { font-size: 12.5px; color: var(--cm-charcoal); line-height: 1.55; }
@@ -3211,6 +3244,7 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
     display: grid; grid-template-columns: 1fr auto;
     gap: 12px; padding: 12px 0;
     border-bottom: 1px solid rgba(0,0,0,0.07);
+    break-inside: avoid; page-break-inside: avoid;
   }
   .issue-row:last-child { border-bottom: none; }
   .issue-row .iss-title {
@@ -3243,28 +3277,40 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
     padding: 10px 12px; vertical-align: top; line-height: 1.55;
     border-bottom: 1px solid rgba(0,0,0,0.07);
   }
+  .content-table tr {
+    /* Don't split a single content row across pages, but allow the
+       table itself to break BETWEEN rows so a long table can flow. */
+    break-inside: avoid; page-break-inside: avoid;
+  }
   .content-table .area { font-weight: 600; color: var(--cm-purple); width: 22%; }
   .content-table .now { width: 36%; }
 
-  /* ACTION ROW */
-  .action-row {
-    display: flex; gap: 16px;
+  /* ACTION ROW.
+     Built on an HTML table so WeasyPrint reliably keeps the numbered
+     circle, title, and body on the same page. Flex parents lose their
+     break-inside guarantee in WeasyPrint; tables don't. */
+  table.action-row {
+    width: 100%;
     background: var(--cm-off-white);
     border: 1px solid var(--cm-light-grey-2);
     border-radius: 12px;
-    padding: 16px 20px;
-    align-items: flex-start;
-    break-inside: avoid; page-break-inside: avoid;
+    border-collapse: separate; border-spacing: 0;
+    page-break-inside: avoid; break-inside: avoid;
+    table-layout: fixed;
   }
+  table.action-row + table.action-row { margin-top: 10px; }
+  table.action-row td { vertical-align: top; padding: 16px 20px; }
+  table.action-row td.num-cell { width: 60px; padding-right: 0; }
+  table.action-row td.body-cell { padding-left: 12px; }
   .action-num {
     background: var(--cm-purple); color: var(--cm-yellow);
     font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 17px;
     width: 36px; height: 36px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
+    text-align: center; line-height: 36px;
   }
-  .action-content { flex: 1; break-inside: avoid; page-break-inside: avoid; }
-  .action-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .action-head { margin-bottom: 4px; }
+  .action-head .action-title { display: inline; }
+  .action-head .pri-pill { margin-left: 8px; vertical-align: middle; }
   .action-title {
     font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 500;
     color: var(--cm-purple); line-height: 1.3;
@@ -3314,6 +3360,13 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   .evidence-img {
     width: 100%; height: auto; border-radius: 8px;
     border: 1px solid var(--cm-light-grey-2); display: block;
+  }
+  /* Mobile screenshots render phone-sized and centred, not full-width.
+     Otherwise a 390-wide capture stretches into a giant blank-looking
+     rectangle on an A4 page. */
+  .evidence-img.mobile {
+    max-width: 300px;
+    margin: 8px auto 0;
   }
   .evidence-caption {
     font-size: 12px; color: var(--cm-body-grey);
@@ -3381,14 +3434,20 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
     <ul>
       {% for b in speed.bullets %}<li>{{ b | safe }}</li>{% endfor %}
     </ul>
-    <div class="metric-grid">
-      {% for m in speed.metrics %}
-      <div class="metric-cell">
-        <div class="metric-v">{{ m.v }}</div>
-        <div class="metric-l">{{ m.l }}</div>
-      </div>
+    <table class="metric-grid">
+      {% for row in speed.metric_rows %}
+      <tr>
+        {% for m in row %}
+        <td>
+          <div class="metric-cell">
+            <div class="metric-v">{{ m.v }}</div>
+            <div class="metric-l">{{ m.l }}</div>
+          </div>
+        </td>
+        {% endfor %}
+      </tr>
       {% endfor %}
-    </div>
+    </table>
   </div>
 
   <div class="section-label">SEO STRUCTURE</div>
@@ -3447,7 +3506,7 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   {% for s in screenshots %}
   <div class="evidence-block">
     <div class="evidence-tag">{{ s.viewport }}</div>
-    <img class="evidence-img" src="data:image/jpeg;base64,{{ s.b64 }}" alt="{{ s.viewport }}" />
+    <img class="evidence-img {{ s.kind }}" src="data:image/jpeg;base64,{{ s.b64 }}" alt="{{ s.viewport }}" />
     <p class="evidence-caption">{{ s.caption | safe }}</p>
   </div>
   {% endfor %}
@@ -3462,16 +3521,17 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   </div>
   {% endif %}
   {% for a in priorities %}
-  <div class="action-row">
-    <div class="action-num">{{ loop.index }}</div>
-    <div class="action-content">
-      <div class="action-head">
-        <div class="action-title">{{ a.title }}</div>
-        <span class="pri-pill {{ a.level | replace(' ', '_') }}">{{ a.level }}</span>
-      </div>
-      <div class="action-body">{{ a.body | safe }}</div>
-    </div>
-  </div>
+  <table class="action-row">
+    <tr>
+      <td class="num-cell"><div class="action-num">{{ loop.index }}</div></td>
+      <td class="body-cell">
+        <div class="action-head">
+          <span class="action-title">{{ a.title }}</span><span class="pri-pill {{ a.level | replace(' ', '_') }}">{{ a.level }}</span>
+        </div>
+        <div class="action-body">{{ a.body | safe }}</div>
+      </td>
+    </tr>
+  </table>
   {% endfor %}
 
   <div class="book-cta">

@@ -2244,7 +2244,7 @@ def _ws_hero(d: dict) -> dict:
 
     headline = (
         f"<strong>{speed_phrase}</strong>, and "
-        f"<strong>{seo_phrase}</strong>. The story this 90-day audit tells is that "
+        f"<strong>{seo_phrase}</strong>. The story this audit tells is that "
         f"<strong>{ux_phrase}</strong>."
     )
 
@@ -2658,6 +2658,175 @@ def _ws_content_card(d: dict) -> dict:
         ),
         "rows": rows,
     }
+
+
+def _ws_priority_counts(priorities: list[dict]) -> list[dict]:
+    """At-a-glance count of each priority level for the section header."""
+    levels = ["CRITICAL", "HIGH", "MEDIUM", "QUICK WIN"]
+    counts = {lvl: sum(1 for p in priorities if p.get("level") == lvl) for lvl in levels}
+    return [
+        {"label": lvl, "count": counts[lvl], "class": lvl.replace(" ", "_")}
+        for lvl in levels if counts[lvl] > 0
+    ]
+
+
+def _ws_capture_screenshots(url: str, audit_data: dict) -> list[dict]:
+    """Capture homepage desktop, homepage mobile, and a contact/booking page if
+    auto-discoverable. Returns a list of {b64, caption, viewport} dicts.
+
+    Silent-fail by design. If Playwright is not installed, the site is
+    unreachable, or any single shot fails, we log and skip rather than block
+    the audit. Captions are data-driven from audit_data so they comment
+    specifically on findings already in the report.
+    """
+    if not url:
+        return []
+    try:
+        from playwright.sync_api import sync_playwright
+        from PIL import Image
+        import base64, io
+    except Exception as exc:
+        log.warning("Website audit screenshots skipped: %s", exc)
+        return []
+
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+
+    def _to_jpeg_b64(png_bytes: bytes, target_w: int) -> str:
+        img = Image.open(io.BytesIO(png_bytes))
+        if img.width > target_w:
+            scale = target_w / img.width
+            img = img.resize((target_w, int(img.height * scale)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "JPEG", quality=82, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    shots: list[dict] = []
+
+    # Caption helpers driven by audit findings.
+    cta_mismatch = bool(audit_data.get("cta_label_mismatch"))
+    no_social    = not audit_data.get("social_proof_above_fold", True)
+    booking_steps = audit_data.get("booking_steps", 0) or 0
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                # ── Desktop homepage ────────────────────────────────────────
+                desk_ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+                desk_page = desk_ctx.new_page()
+                try:
+                    desk_page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    desk_page.wait_for_timeout(1500)
+                    png = desk_page.screenshot(full_page=False)
+                    desk_caption_parts = []
+                    if cta_mismatch:
+                        desk_caption_parts.append(
+                            "The primary CTA visible above the fold says <em>Book Now</em> "
+                            "but the click leads to an enquiry or waitlist form, not a booking."
+                        )
+                    if no_social:
+                        desk_caption_parts.append(
+                            "No professional credentials or trust signals are visible without scrolling."
+                        )
+                    desk_caption = (
+                        " ".join(desk_caption_parts)
+                        if desk_caption_parts
+                        else "Desktop homepage above the fold at 1,440 pixels."
+                    )
+                    shots.append({
+                        "b64": _to_jpeg_b64(png, 760),
+                        "caption": desk_caption,
+                        "viewport": "DESKTOP · 1440 × 900",
+                    })
+                except Exception as exc:
+                    log.warning("Desktop screenshot failed: %s", exc)
+                desk_ctx.close()
+
+                # ── Mobile homepage ─────────────────────────────────────────
+                mob_ctx = browser.new_context(
+                    viewport={"width": 390, "height": 844},
+                    device_scale_factor=2,
+                    is_mobile=True,
+                    has_touch=True,
+                )
+                mob_page = mob_ctx.new_page()
+                try:
+                    mob_page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    mob_page.wait_for_timeout(1500)
+                    body_w = mob_page.evaluate("() => document.body.scrollWidth")
+                    has_hscroll = body_w > 390
+                    png = mob_page.screenshot(full_page=False)
+                    if has_hscroll:
+                        mob_caption = (
+                            f"Mobile homepage on a 390 pixel viewport. The page renders at "
+                            f"{body_w} pixels wide, producing horizontal scroll. The site is "
+                            "not responsive, which is the single largest conversion blocker on "
+                            "any phone-driven traffic."
+                        )
+                    elif audit_data.get("mobile_hero_overlap"):
+                        mob_caption = (
+                            "Mobile homepage at 390 pixels. The hero has layout issues that "
+                            "break the first impression on the most common screen size for "
+                            "local clinic searches."
+                        )
+                    else:
+                        mob_caption = "Mobile homepage above the fold at a 390 pixel viewport."
+                    shots.append({
+                        "b64": _to_jpeg_b64(png, 760),
+                        "caption": mob_caption,
+                        "viewport": "MOBILE · 390 × 844",
+                    })
+                except Exception as exc:
+                    log.warning("Mobile screenshot failed: %s", exc)
+                mob_ctx.close()
+
+                # ── Contact / booking page (auto-discover) ──────────────────
+                base = url.rstrip("/")
+                for path in ("/contact", "/contact-us", "/book", "/booking", "/book-online", "/appointments", "/make-a-booking"):
+                    try:
+                        cctx = browser.new_context(viewport={"width": 1440, "height": 900})
+                        cpage = cctx.new_page()
+                        resp = cpage.goto(base + path, wait_until="domcontentloaded", timeout=10000)
+                        if resp and 200 <= resp.status < 400:
+                            cpage.wait_for_timeout(1000)
+                            png = cpage.screenshot(full_page=False)
+                            booking_caption_parts = []
+                            if cta_mismatch:
+                                booking_caption_parts.append(
+                                    "The path most ad clicks take. The booking flow on this page "
+                                    "leads to a callback form rather than direct online scheduling."
+                                )
+                            if booking_steps >= 4:
+                                booking_caption_parts.append(
+                                    f"The current process is {booking_steps} steps before any "
+                                    "confirmation, which adds drop-off on mobile."
+                                )
+                            booking_caption = (
+                                " ".join(booking_caption_parts)
+                                if booking_caption_parts
+                                else f"Contact page ({path}). The path most ad clicks take after the homepage."
+                            )
+                            shots.append({
+                                "b64": _to_jpeg_b64(png, 760),
+                                "caption": booking_caption,
+                                "viewport": f"DESKTOP · {path}",
+                            })
+                            cctx.close()
+                            break
+                        cctx.close()
+                    except Exception:
+                        try: cctx.close()
+                        except Exception: pass
+                        continue
+            finally:
+                browser.close()
+    except Exception as exc:
+        log.warning("Website audit screenshot capture aborted: %s", exc)
+        return shots  # return whatever we got before the failure
+
+    log.info("Captured %d website screenshots for %s", len(shots), url)
+    return shots
 
 
 def _ws_priorities(d: dict) -> list[dict]:
@@ -3113,6 +3282,45 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
   .action-body strong { color: var(--cm-purple); font-weight: 600; }
   .action-body em { font-style: italic; color: var(--cm-purple); }
 
+  /* PRIORITY-COUNT BADGES (above the priority list) */
+  .pri-counts {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px; margin-bottom: 4px;
+  }
+  .count-pill {
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 9.5px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .count-pill.CRITICAL  { background: var(--cm-coral-red); color: var(--cm-off-white); }
+  .count-pill.HIGH      { background: var(--cm-orange);    color: var(--cm-off-white); }
+  .count-pill.MEDIUM    { background: var(--cm-lavender);  color: var(--cm-purple); }
+  .count-pill.QUICK_WIN { background: var(--cm-green);     color: var(--cm-off-white); }
+
+  /* WEBSITE EVIDENCE (auto-captured screenshots) */
+  .evidence-block {
+    background: var(--cm-off-white);
+    border: 1px solid var(--cm-light-grey-2);
+    border-radius: 12px;
+    padding: 18px 20px;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .evidence-block + .evidence-block { margin-top: 10px; }
+  .evidence-tag {
+    font-family: 'Lexend', sans-serif; font-weight: 700; font-size: 9.5px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--cm-purple); margin-bottom: 8px;
+  }
+  .evidence-img {
+    width: 100%; height: auto; border-radius: 8px;
+    border: 1px solid var(--cm-light-grey-2); display: block;
+  }
+  .evidence-caption {
+    font-size: 12px; color: var(--cm-body-grey);
+    line-height: 1.55; margin-top: 8px;
+  }
+  .evidence-caption em { font-style: italic; color: var(--cm-purple); }
+
   /* BOOK-A-CALL CTA */
   .book-cta {
     background: var(--cm-purple); color: var(--cm-off-white);
@@ -3234,7 +3442,25 @@ TEMPLATE_WS_SRC = r"""<!DOCTYPE html>
     </table>
   </div>
 
+  {% if screenshots %}
+  <div class="section-label">WEBSITE EVIDENCE</div>
+  {% for s in screenshots %}
+  <div class="evidence-block">
+    <div class="evidence-tag">{{ s.viewport }}</div>
+    <img class="evidence-img" src="data:image/jpeg;base64,{{ s.b64 }}" alt="{{ s.viewport }}" />
+    <p class="evidence-caption">{{ s.caption | safe }}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+
   <div class="section-label">PRIORITY FIX LIST</div>
+  {% if priority_counts %}
+  <div class="pri-counts">
+    {% for c in priority_counts %}
+    <span class="count-pill {{ c.class }}">{{ c.count }} {{ c.label }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% for a in priorities %}
   <div class="action-row">
     <div class="action-num">{{ loop.index }}</div>
@@ -3288,6 +3514,12 @@ def generate_website_audit(audit_data: dict) -> bytes:
     for c in seo["checks"]:
         c["status_text"] = _ws_status_text(c["status"])
 
+    priorities = _ws_priorities(d)
+
+    # Auto-capture screenshots from website_url. Silently fails if Playwright
+    # is missing or the site is unreachable.
+    screenshots = _ws_capture_screenshots(website_url, d)
+
     ctx = {
         "logo_b64": _LOGO_B64,
         "clinic_name": clinic_name,
@@ -3301,13 +3533,15 @@ def generate_website_audit(audit_data: dict) -> bytes:
         "seo": seo,
         "ux": _ws_ux_card(d),
         "content": _ws_content_card(d),
-        "priorities": _ws_priorities(d),
+        "screenshots": screenshots,
+        "priorities": priorities,
+        "priority_counts": _ws_priority_counts(priorities),
     }
 
     html_text = _TEMPLATE_WS.render(**ctx)
     pdf_bytes = HTML(string=html_text).write_pdf()
     log.info(
-        "Generated v2 website audit PDF: clinic=%s, %d bytes, %d priorities",
-        clinic_name, len(pdf_bytes), len(ctx["priorities"]),
+        "Generated v2 website audit PDF: clinic=%s, %d bytes, %d priorities, %d screenshots",
+        clinic_name, len(pdf_bytes), len(priorities), len(screenshots),
     )
     return pdf_bytes

@@ -22,7 +22,9 @@ import { FormData, submitForm } from "../lib/submitForm";
 // Blank initial state: all fields start empty
 const INITIAL_FORM_DATA: FormData = {
   clinic_name: "",
+  first_name: "",
   email: "",
+  phone: "",
   primary_specialty: "",
   suburb: "",
   state: "",

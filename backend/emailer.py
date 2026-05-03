@@ -275,6 +275,9 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
     """
     Emails the standard intake brief PDF to pete for clinics that didn't
     provide Google Ads access. Includes a copy-paste draft email in the body.
+
+    Header banner shows the prospect's first name + email + phone so Pete
+    can forward without hunting for the contact details.
     """
     from pdf_report import generate_intake_email_draft
     draft = generate_intake_email_draft(clinic_name, submission)
@@ -287,6 +290,34 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
 
     subject = f"New Intake Brief - {clinic_name}"
 
+    first_name    = submission.get("first_name") or ""
+    contact_email = submission.get("email") or ""
+    contact_phone = submission.get("phone") or ""
+
+    contact_rows = ""
+    if first_name:
+        contact_rows += (
+            f'<tr><td style="padding:8px 12px;font-weight:600;color:#534AB7;width:30%;">Send to</td>'
+            f'<td style="padding:8px 12px;color:#374151;">{first_name}</td></tr>\n'
+        )
+    if contact_email:
+        contact_rows += (
+            f'<tr style="background:#eeecfb;"><td style="padding:8px 12px;font-weight:600;color:#534AB7;">Email</td>'
+            f'<td style="padding:8px 12px;color:#374151;"><a href="mailto:{contact_email}" style="color:#534AB7;">{contact_email}</a></td></tr>\n'
+        )
+    if contact_phone:
+        contact_rows += (
+            f'<tr><td style="padding:8px 12px;font-weight:600;color:#534AB7;">Phone</td>'
+            f'<td style="padding:8px 12px;color:#374151;"><a href="tel:{contact_phone}" style="color:#534AB7;">{contact_phone}</a></td></tr>\n'
+        )
+    contact_banner = (
+        f"""<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:4px 0;margin-bottom:20px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+{contact_rows}      </table>
+    </div>"""
+        if contact_rows else ""
+    )
+
     html = f"""
 <div style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:24px;">
   <div style="background:#534AB7;padding:16px 24px;border-radius:8px 8px 0 0;">
@@ -295,6 +326,7 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
   </div>
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;
               padding:24px;border-radius:0 0 8px 8px;">
+    {contact_banner}
     <p style="color:#374151;margin:0 0 12px;">
       <strong>{clinic_name}</strong> completed the intake form and {reason}.
       Their intake brief is attached.

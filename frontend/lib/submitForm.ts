@@ -12,7 +12,9 @@
 export interface FormData {
   // Step 1
   clinic_name: string;
+  first_name: string;
   email: string;
+  phone: string;
   primary_specialty: string;
   suburb: string;
   state: string;

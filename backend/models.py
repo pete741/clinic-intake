@@ -9,30 +9,29 @@ import re
 
 
 class IntakeSubmission(BaseModel):
-    # Step 1 — About your clinic
+    # Step 1: About your clinic + the person filling in the form
     clinic_name: str
+    first_name: str
     email: str
+    phone: str
     primary_specialty: str
     suburb: str
     state: str
     num_practitioners: int
     website_url: str
 
-    # Step 2 — Patient and revenue context
+    # Step 2: Patient and revenue context
     avg_appointment_fee: float
     avg_visits_per_patient: float
     new_patients_per_month: int
     monthly_ad_spend: float
     appointment_types_to_grow: str
 
-    # Step 3 — Goals and context
+    # Step 3: Goals and context
     main_goal: str
     additional_context: Optional[str] = None
 
-    # Contact
-    phone: Optional[str] = None
-
-    # Step 4 — Google Ads access (entirely optional)
+    # Step 4: Google Ads access (entirely optional)
     has_google_ads: Optional[str] = None
     invite_sent: Optional[str] = None
 

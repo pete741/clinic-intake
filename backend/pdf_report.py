@@ -327,9 +327,12 @@ def generate_intake_email_draft(clinic_name: str, submission: dict) -> str:
     findings_text = "\n".join(findings[:3]) if findings else \
         "- I've put together a brief with some specific recommendations based on your answers."
 
+    first_name = (submission.get("first_name") or "").strip()
+    greeting = f"Hi {first_name}," if first_name else "Hi there,"
+
     draft = f"""Subject: Your clinic growth brief - {clinic_name}
 
-Hi [First name],
+{greeting}
 
 Thanks for filling out the form - I've put together a short brief for {clinic_name} based on what you shared, attached as a PDF.
 

@@ -57,10 +57,16 @@ export default function StepClinic({ data, onChange, onNext }: StepClinicProps) 
     const e: Partial<Record<keyof FormData, string>> = {};
 
     if (!data.clinic_name.trim()) e.clinic_name = "Clinic name is required";
+    if (!data.first_name.trim()) e.first_name = "First name is required";
     if (!data.email.trim()) {
       e.email = "Email is required";
     } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email)) {
       e.email = "Enter a valid email address";
+    }
+    if (!data.phone.trim()) {
+      e.phone = "Phone number is required";
+    } else if (!/^[+\d][\d\s()-]{6,}$/.test(data.phone)) {
+      e.phone = "Enter a valid phone number";
     }
     if (!data.primary_specialty) e.primary_specialty = "Please select a specialty";
     if (!data.suburb.trim()) e.suburb = "Suburb is required";
@@ -100,6 +106,17 @@ export default function StepClinic({ data, onChange, onNext }: StepClinicProps) 
         />
       </Field>
 
+      <Field label="Your first name *" error={errors.first_name}>
+        <input
+          type="text"
+          value={data.first_name}
+          onChange={(e) => onChange({ first_name: e.target.value })}
+          placeholder="e.g. Sarah"
+          className={inputClass}
+          autoComplete="given-name"
+        />
+      </Field>
+
       <Field label="Email address *" error={errors.email}>
         <input
           type="email"
@@ -107,6 +124,18 @@ export default function StepClinic({ data, onChange, onNext }: StepClinicProps) 
           onChange={(e) => onChange({ email: e.target.value })}
           placeholder="you@yourclinic.com.au"
           className={inputClass}
+          autoComplete="email"
+        />
+      </Field>
+
+      <Field label="Phone number *" error={errors.phone}>
+        <input
+          type="tel"
+          value={data.phone}
+          onChange={(e) => onChange({ phone: e.target.value })}
+          placeholder="04xx xxx xxx"
+          className={inputClass}
+          autoComplete="tel"
         />
       </Field>
 

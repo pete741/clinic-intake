@@ -53,7 +53,7 @@ export default function ThankYouPage() {
           <ul className="space-y-2 text-sm text-slate-200 mb-5">
             <li className="flex items-start gap-2">
               <span className="text-red-400 font-bold mt-0.5">→</span>
-              <span>Where your Google Ads budget is being wasted — down to the dollar</span>
+              <span>Where your Google Ads budget is being wasted, down to the dollar</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-red-400 font-bold mt-0.5">→</span>

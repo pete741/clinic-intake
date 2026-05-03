@@ -1,5 +1,5 @@
 /**
- * Step 2 — Patient and revenue context
+ * Step 2: Patient and revenue context
  *
  * Collects numbers used to calculate cost-per-patient and set benchmarks.
  * All fields are required.

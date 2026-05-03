@@ -19,7 +19,7 @@ import StepGoals from "../components/StepGoals";
 import StepGoogleAds from "../components/StepGoogleAds";
 import { FormData, submitForm } from "../lib/submitForm";
 
-// Blank initial state — all fields start empty
+// Blank initial state: all fields start empty
 const INITIAL_FORM_DATA: FormData = {
   clinic_name: "",
   email: "",

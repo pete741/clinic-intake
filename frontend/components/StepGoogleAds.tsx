@@ -1,5 +1,5 @@
 /**
- * Step 4 — Google Ads access (optional)
+ * Step 4: Google Ads access (optional)
  *
  * This step has a distinct visual treatment:
  *   - Purple border card
@@ -28,10 +28,10 @@ interface StepGoogleAdsProps {
 
 const HAS_ADS_OPTIONS = [
   { value: "", label: "Select an option…" },
-  { value: "Yes — I have an active account", label: "Yes — I have an active account" },
-  { value: "Yes — managed by another agency", label: "Yes — managed by another agency" },
-  { value: "Yes — but paused or inactive", label: "Yes — but paused or inactive" },
-  { value: "No — I don't run Google Ads yet", label: "No — I don't run Google Ads yet" },
+  { value: "Yes, I have an active account", label: "Yes, I have an active account" },
+  { value: "Yes, managed by another agency", label: "Yes, managed by another agency" },
+  { value: "Yes, but paused or inactive", label: "Yes, but paused or inactive" },
+  { value: "No, I don't run Google Ads yet", label: "No, I don't run Google Ads yet" },
 ];
 
 const INVITE_OPTIONS = [
@@ -69,7 +69,7 @@ export default function StepGoogleAds({
 }: StepGoogleAdsProps) {
   const hasAdsYes =
     data.has_google_ads.startsWith("Yes") && data.has_google_ads !== "";
-  const hasAdsNo = data.has_google_ads === "No — I don't run Google Ads yet";
+  const hasAdsNo = data.has_google_ads === "No, I don't run Google Ads yet";
 
   return (
     <div className="space-y-6">
@@ -148,7 +148,7 @@ export default function StepGoogleAds({
         </select>
       </div>
 
-      {/* "Yes" path — invite instructions */}
+      {/* "Yes" path: invite instructions */}
       {hasAdsYes && (
         <div className="rounded-xl border border-purple-200 bg-white p-5 space-y-4">
           <p className="text-sm font-semibold text-gray-800">
@@ -196,10 +196,10 @@ export default function StepGoogleAds({
         </div>
       )}
 
-      {/* "No" path — reassuring message */}
+      {/* "No" path: reassuring message */}
       {hasAdsNo && (
         <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800">
-          No problem — we'll design your initial campaign structure based on your
+          No problem, we'll design your initial campaign structure based on your
           market and competitors. You'll get a full launch strategy in your brief.
         </div>
       )}

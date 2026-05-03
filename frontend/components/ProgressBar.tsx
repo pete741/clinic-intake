@@ -1,5 +1,5 @@
 /**
- * ProgressBar — shows "Step X of 4" and a filled bar.
+ * ProgressBar: shows "Step X of 4" and a filled bar.
  * The bar fills proportionally: step 1 = 25%, step 2 = 50%, etc.
  */
 
@@ -23,7 +23,7 @@ export default function ProgressBar({ currentStep, totalSteps }: ProgressBarProp
       {/* Step label */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium text-gray-600">
-          Step {currentStep} of {totalSteps} — {STEP_LABELS[currentStep - 1]}
+          Step {currentStep} of {totalSteps} · {STEP_LABELS[currentStep - 1]}
         </span>
         <span className="text-sm text-gray-400">{pct}%</span>
       </div>

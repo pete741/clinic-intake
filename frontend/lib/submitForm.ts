@@ -5,7 +5,7 @@
  * (defaults to http://localhost:8000 for local development).
  *
  * Returns the parsed JSON response on success, or throws an Error with a
- * human-readable message on failure — the form page catches this and shows
+ * human-readable message on failure. The form page catches this and shows
  * it inline without losing any form data.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Step 3 — Goals and context
+ * Step 3: Goals and context
  *
  * Captures what the clinic most wants to achieve and any additional
  * context that helps tailor the brief. The dropdown is required;
@@ -22,7 +22,7 @@ const GOALS = [
   "Grow a specific service type",
   "Onboard a new practitioner",
   "Expand to a second location",
-  "Understand what's working — I want an audit",
+  "Understand what's working, I want an audit",
 ];
 
 const inputClass =

@@ -1,5 +1,5 @@
 /**
- * Step 1 — About your clinic
+ * Step 1: About your clinic
  *
  * Collects the basic clinic details. All fields are required.
  * Validation is done here before the parent page advances to step 2.
@@ -86,7 +86,7 @@ export default function StepClinic({ data, onChange, onNext }: StepClinicProps) 
       <div>
         <h2 className="text-2xl font-bold text-gray-900">About your clinic</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Tell us the basics — this becomes the foundation of your growth brief.
+          Tell us the basics. This becomes the foundation of your growth brief.
         </p>
       </div>
 

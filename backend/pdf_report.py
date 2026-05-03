@@ -420,18 +420,39 @@ def _condition_keywords(spec_lc: str, suburb: str, appt: str) -> list[str]:
     ]
 
 
+def _spec_noun(spec_lc: str) -> str:
+    """Returns a natural single-noun form of the specialty for keyword
+    composition (so 'occupational therapy' stays as 'occupational therapy'
+    instead of getting split to 'occupational')."""
+    if "occupational" in spec_lc: return "occupational therapy"
+    if "physio"       in spec_lc: return "physio"
+    if "chiro"        in spec_lc: return "chiropractic"
+    if "psycholog"    in spec_lc: return "psychology"
+    if "counsel"      in spec_lc: return "counselling"
+    if "osteo"        in spec_lc: return "osteopathy"
+    if "podiatr"      in spec_lc: return "podiatry"
+    if "speech"       in spec_lc: return "speech therapy"
+    if "naturop"      in spec_lc: return "naturopathy"
+    if "dietit"       in spec_lc: return "dietitian"
+    if "nutrit"       in spec_lc: return "nutrition"
+    if "dent"         in spec_lc: return "dental"
+    if "optom"        in spec_lc: return "optometry"
+    return spec_lc.split()[0] if spec_lc else "clinic"
+
+
 def _service_keywords(spec_lc: str, suburb: str, appt: str) -> list[str]:
     """Returns service-specific keywords derived from appointment types to grow."""
     suburb_lc = suburb.lower()
     appt_lc = appt.lower() if appt else ""
+    noun = _spec_noun(spec_lc)
     keywords = []
     # Pull service hints from appointment types field
     service_map = {
-        "initial": [f"initial {spec_lc.split()[0]} appointment {suburb_lc}", "first physio appointment"],
-        "sports": [f"sports {spec_lc.split()[0]} {suburb_lc}", "sports injury clinic"],
+        "initial": [f"initial {noun} appointment {suburb_lc}", f"first {noun} appointment"],
+        "sports": [f"sports {noun} {suburb_lc}", f"sports injury {noun}"],
         "pregnancy": ["pregnancy physio", "prenatal physiotherapy", "pelvic floor physio"],
         "paediatric": ["children's physio", "paediatric physiotherapy", "kids chiropractor"],
-        "family": [f"family {spec_lc.split()[0]} {suburb_lc}", "family chiropractic"],
+        "family": [f"family {noun} {suburb_lc}", f"family {noun}"],
         "dry needling": [f"dry needling {suburb_lc}", "acupuncture physio"],
         "massage": [f"remedial massage {suburb_lc}", "sports massage near me"],
         "hydrotherapy": [f"hydrotherapy {suburb_lc}", "pool physio"],
@@ -454,11 +475,11 @@ def _service_keywords(spec_lc: str, suburb: str, appt: str) -> list[str]:
             break
     if not keywords:
         keywords = [
-            f"{spec_lc.split()[0]} appointment {suburb_lc}",
-            f"book {spec_lc.split()[0]}",
-            f"{spec_lc.split()[0]} consultation",
-            f"new patient {spec_lc.split()[0]}",
-            f"online booking {spec_lc.split()[0]}",
+            f"{noun} appointment {suburb_lc}",
+            f"book {noun}",
+            f"{noun} consultation",
+            f"new patient {noun}",
+            f"online booking {noun}",
         ]
     return keywords[:5]
 

@@ -1,24 +1,19 @@
 """
 Generates a branded Clinic Mastery Google Ads audit PDF.
 
-Sections:
-  1. Cover / headline metrics snapshot
-  2. Campaign performance (last 90 days)
-  3. Wasted spend - high cost, zero conversions
-  4. Irrelevant search terms (from search term report)
-  5. Brand vs non-brand spend split
-  6. Conversion tracking health check
-  7. Quality score breakdown
-  8. Priority fix list
+Two generators live here:
+  * `generate_pdf` (public) — dispatches by env var AUDIT_PDF_VERSION:
+      "v2" → pdf_report_v2.generate_pdf  (HTML+CSS via WeasyPrint, new design)
+      anything else → _generate_pdf_legacy below (ReportLab, original design)
+    Default is the legacy generator. Set AUDIT_PDF_VERSION=v2 on Render to
+    flip to the new design. Unset to roll back instantly.
+  * `_generate_pdf_legacy` — the original ReportLab implementation.
 
-Colours:
-  Purple  #534AB7  - headings, accents
-  Gold    #D4B22F  - logo, rules
-  Dark    #1a1a2e  - body text
-  Light   #f5f3ff  - shaded rows / panels
+Legacy section list (sections 1-8) and colour constants are below.
 """
 
 import io
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -1594,15 +1589,21 @@ def generate_intake_brief(submission: dict) -> bytes:
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def generate_pdf(ads_data: dict, clinic_name: str) -> bytes:
+    """Dispatch to v2 (HTML+WeasyPrint) or legacy (ReportLab) by env var.
+
+    Set AUDIT_PDF_VERSION=v2 on Render to enable the new design.
+    Unset / any other value falls back to the original ReportLab layout.
     """
-    Generates the full branded audit PDF.
+    if os.environ.get("AUDIT_PDF_VERSION", "").strip().lower() in ("v2", "2", "new"):
+        from pdf_report_v2 import generate_pdf as _v2_generate
+        return _v2_generate(ads_data, clinic_name)
+    return _generate_pdf_legacy(ads_data, clinic_name)
 
-    Args:
-        ads_data:    Summary dict from google_ads.pull_account_data()
-        clinic_name: Clinic name for the header
 
-    Returns:
-        PDF as bytes, ready to attach to an email.
+def _generate_pdf_legacy(ads_data: dict, clinic_name: str) -> bytes:
+    """
+    Original ReportLab generator. Kept as fallback during the v2 rollout.
+    Delete once v2 has run cleanly for a week and we're confident.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1639,5 +1640,956 @@ def generate_pdf(ads_data: dict, clinic_name: str) -> bytes:
     _section_priorities(story, styles, ads_data)
 
     page_cb = _make_page_cb(clinic_name, pulled_at)
+    doc.build(story, onFirstPage=page_cb, onLaterPages=page_cb)
+    return buffer.getvalue()
+
+
+# ── Website Audit PDF ─────────────────────────────────────────────────────────
+
+def _ws_scorecard(story, styles, d: dict):
+    """3-pillar scorecard: Speed | SEO | UX."""
+    def _pill(label, status):
+        s = {"pass": styles["tag_green"], "warn": styles["tag_amber"], "fail": styles["tag_red"]}[status]
+        icon = {"pass": "GOOD", "warn": "NEEDS WORK", "fail": "CRITICAL"}[status]
+        return [Paragraph(label, styles["metric_lbl"]), Paragraph(icon, s)]
+
+    ttfb = d.get("ttfb_ms", 0)
+    speed_status = "pass" if ttfb < 200 else ("warn" if ttfb < 600 else "fail")
+    seo_issues = sum([
+        d.get("h1_count", 1) != 1,
+        not d.get("og_image_ok", True),
+        not d.get("schema_ok", True),
+        d.get("images_missing_alt", 0) > 0,
+        d.get("homepage_word_count", 500) < 400,
+    ])
+    seo_status = "pass" if seo_issues == 0 else ("warn" if seo_issues <= 2 else "fail")
+    ux_issues = sum([
+        d.get("mobile_hero_overlap", False),
+        d.get("cta_label_mismatch", False),
+        not d.get("social_proof_above_fold", True),
+        d.get("no_pricing_on_service_pages", False),
+    ])
+    ux_status = "pass" if ux_issues == 0 else ("warn" if ux_issues <= 1 else "fail")
+
+    cells = [[_pill("Site Speed", speed_status), _pill("SEO Structure", seo_status), _pill("UX & Conversion", ux_status)]]
+    tbl = Table(cells, colWidths=[CONTENT_W / 3] * 3)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+        ("BOX", (0, 0), (-1, -1), 1, PURPLE),
+        ("LINEAFTER", (0, 0), (-2, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(tbl)
+    _spacer(story, 4)
+
+
+def _ws_section_speed(story, styles, d: dict):
+    story.append(Paragraph("1. Site Speed", styles["section"]))
+    _rule(story)
+
+    ttfb = d.get("ttfb_ms", 0)
+    load = d.get("full_load_ms", 0)
+    resources = d.get("total_resources", 0)
+    js_files = d.get("js_files", 0)
+    css_files = d.get("css_files", 0)
+
+    story.append(Paragraph(
+        "Page speed is the single biggest lever for converting a parent's Google search into a booked appointment. "
+        "Google uses Core Web Vitals as a direct ranking signal on mobile. A slow site doesn't just frustrate "
+        "visitors - it actively suppresses how often the site appears in search results. "
+        "The numbers below were measured from a clean browser session.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    metrics = [
+        (f"{ttfb}ms", "Time to First Byte"),
+        (f"{load}ms", "Full Page Load"),
+        (str(resources), "Total Resources"),
+        (str(js_files), "JavaScript Files"),
+        (str(css_files), "CSS Stylesheets"),
+        ("None", "WebP Images"),
+    ]
+    cells = [[
+        [Paragraph(v, styles["metric_val"]), Paragraph(l, styles["metric_lbl"])]
+        for v, l in metrics
+    ]]
+    tbl = Table(cells, colWidths=[CONTENT_W / 6] * 6)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+        ("BOX", (0, 0), (-1, -1), 1, PURPLE),
+        ("LINEAFTER", (0, 0), (-2, -1), 0.5, colors.HexColor("#d1d5db")),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(tbl)
+    _spacer(story, 4)
+
+    checks = [
+        {
+            "check": "Time to First Byte (TTFB)",
+            "status": "pass" if ttfb < 200 else ("warn" if ttfb < 600 else "fail"),
+            "detail": (
+                f"TTFB is {ttfb}ms. Google's target is under 200ms. "
+                + ("This is within target." if ttfb < 200 else
+                   f"At {ttfb}ms the server is slower than ideal - likely the WordPress hosting plan. "
+                   "A faster host or server-side caching plugin (WP Rocket, LiteSpeed Cache) would bring this under 200ms."
+                   if ttfb < 600 else
+                   f"At {ttfb}ms this is critically slow. The server needs a caching layer or a hosting upgrade immediately.")
+            ),
+        },
+        {
+            "check": "JavaScript file count",
+            "status": "fail" if js_files > 20 else ("warn" if js_files > 10 else "pass"),
+            "detail": (
+                f"{js_files} separate JavaScript files are loading on the homepage. "
+                "Each file is a separate network request. Google recommends fewer than 10. "
+                "This is almost certainly WordPress plugin bloat - each installed plugin adds its own JS file "
+                "even on pages where it is not needed. A caching plugin with asset minification "
+                "(WP Rocket or LiteSpeed Cache) can bundle these into 2-3 files and cut load time significantly."
+            ),
+        },
+        {
+            "check": "CSS stylesheet count",
+            "status": "fail" if css_files > 15 else ("warn" if css_files > 8 else "pass"),
+            "detail": (
+                f"{css_files} separate CSS stylesheets are loading. "
+                "Same root cause as the JavaScript bloat - WordPress plugin overhead. "
+                "A minification plugin can combine these into 1-2 stylesheets and "
+                "remove the render-blocking penalty they impose on page load."
+            ),
+        },
+        {
+            "check": "Image format (WebP)",
+            "status": "fail" if not d.get("has_webp") else "pass",
+            "detail": (
+                "No images on the site are served in WebP format. "
+                "WebP images are 25-35% smaller than PNG/JPG with no visible quality difference. "
+                "Switching all clinic and team photos to WebP would meaningfully reduce page weight "
+                "without any design changes. Most image editing tools and WordPress plugins "
+                "(ShortPixel, Smush) convert automatically."
+            ) if not d.get("has_webp") else
+            "Images are served in WebP format. Good for page weight.",
+        },
+        {
+            "check": "Lazy loading",
+            "status": "pass" if d.get("has_lazy_load") else "warn",
+            "detail": (
+                "Some images use lazy loading (loading='lazy'), which defers off-screen images until the user scrolls to them. "
+                "This is good practice. Confirm all below-the-fold images have this attribute applied."
+            ) if d.get("has_lazy_load") else
+            "No lazy loading detected on images. Add loading='lazy' to all below-the-fold images.",
+        },
+    ]
+
+    rows = [["Check", "Status", "Detail"]]
+    status_map = {
+        "pass": lambda: Paragraph("GOOD", styles["tag_green"]),
+        "warn": lambda: Paragraph("REVIEW", styles["tag_amber"]),
+        "fail": lambda: Paragraph("FIX", styles["tag_red"]),
+    }
+    for c in checks:
+        rows.append([
+            Paragraph(c["check"], styles["body_bold"]),
+            status_map[c["status"]](),
+            Paragraph(c["detail"], styles["body"]),
+        ])
+
+    col_w = [55*mm, 18*mm, 101*mm]
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(_tbl_style())
+    story.append(tbl)
+    _info_box(story, styles,
+        "The site is built on WordPress with a page-builder theme. The plugin count is the primary "
+        "driver of the JS/CSS bloat. Installing WP Rocket (~$59/yr) with asset optimisation enabled "
+        "is the single highest-ROI speed fix available - it bundles scripts, enables caching, "
+        "and activates CDN delivery without touching the design.")
+
+
+
+def _ws_section_seo(story, styles, d: dict):
+    _spacer(story, 10)
+    story.append(Paragraph("2. SEO Structure", styles["section"]))
+    _rule(story)
+
+    clinic_name = d.get("clinic_name", "the clinic")
+    specialty   = d.get("specialty", "allied health")
+    location    = d.get("location", "")
+    spec_lower  = specialty.lower()
+
+    if "psychol" in spec_lower or "counsel" in spec_lower:
+        schema_type = "PsychologistService"
+    elif "physio" in spec_lower:
+        schema_type = "MedicalBusiness (Physiotherapy)"
+    elif "speech" in spec_lower:
+        schema_type = "MedicalBusiness (SpeechTherapist)"
+    else:
+        schema_type = "LocalBusiness or MedicalBusiness"
+
+    if "speech" in spec_lower or "paediatric" in spec_lower or "child" in spec_lower:
+        audience = "parents"
+    else:
+        audience = "patients and referrers"
+
+    locations = [l.strip() for l in location.replace("&", ",").split(",")
+                 if l.strip() and len(l.strip()) < 35]
+    is_multi  = len(locations) > 1
+    primary   = locations[0] if locations else location
+    h1_example = f"{specialty} in {primary}" if primary else specialty
+
+    if is_multi and len(locations) >= 2:
+        meta_suggestion = (
+            f"Clinics in {locations[0]} and {locations[1]}. "
+            "Accepting new clients - book online today."
+        )
+    else:
+        meta_suggestion = (
+            f"Clinic in {primary}. Accepting new clients - book online today."
+        )
+
+    story.append(Paragraph(
+        f"SEO structure determines how clearly Google understands what this site is about "
+        f"and who it serves. Getting this right is what determines whether {audience} searching "
+        f"'{specialty.lower()} {primary}' find {clinic_name} or a competitor. "
+        "Each issue below directly affects ranking.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    h1_count   = d.get("h1_count", 1)
+    imgs_no_alt= d.get("images_missing_alt", 0)
+    total_imgs = d.get("total_images", 1)
+    word_count = d.get("homepage_word_count", 0)
+    meta_desc  = d.get("meta_desc", "")
+    pages_indexed = d.get("pages_indexed", 0)
+    has_sitemap   = d.get("has_sitemap", False)
+
+    checks = [
+        {
+            "check": "H1 heading (one per page)",
+            "status": "pass" if h1_count == 1 else "fail",
+            "detail": (
+                f"There are {h1_count} H1 headings on the homepage. Google uses the H1 as the primary "
+                f"topic signal for each page. Multiple H1s split that signal and reduce ranking clarity. "
+                f"Set a single H1 per page targeting the main keyword - for example "
+                f"'{h1_example}'. All other headings should be H2 or H3. "
+                "Check team pages and location pages too - practitioner names listed as H1 are a common cause of this issue."
+            ) if h1_count != 1 else
+            "Single H1 tag correctly set.",
+        },
+        {
+            "check": "Meta description" + (" covers all locations" if is_multi else ""),
+            "status": "warn",
+            "detail": (
+                f'Current meta description: "{meta_desc}" '
+                + (
+                    f"With clinics across {location}, the meta description should reference multiple "
+                    f"locations so the search snippet is relevant to {audience} in each area. "
+                    if is_multi else
+                    f"The meta description should include the suburb, the patient benefit, "
+                    f"and a call to action. "
+                )
+                + f"Consider: '{meta_suggestion}'"
+            ),
+        },
+        {
+            "check": "Open Graph image (social sharing)",
+            "status": "fail" if not d.get("og_image_ok") else "pass",
+            "detail": (
+                "The image set for social sharing (Facebook, LinkedIn, WhatsApp previews) is a small "
+                "icon rather than a real clinic or team photo. When someone shares the website link, "
+                "the preview card shows an icon instead of a professional image. "
+                "Replace with a high-resolution photo of the clinic or team (minimum 1200 x 630px) "
+                "in the SEO plugin social settings."
+            ) if not d.get("og_image_ok") else
+            "Open Graph image correctly set.",
+        },
+        {
+            "check": "Structured data (schema markup)",
+            "status": "fail" if not d.get("schema_ok") else "pass",
+            "detail": (
+                f"No valid schema markup is configured on this site. Google uses {schema_type} schema "
+                f"to power rich results: star ratings, opening hours, address, and phone number appearing "
+                f"directly in search listings. "
+                f"{'Configure one schema entry per location with full address, hours, and phone.' if is_multi else 'Set this up via the SEO plugin with the clinic address, hours, and phone number.'} "
+                "This typically takes 30-45 minutes and does not require any design changes."
+            ) if not d.get("schema_ok") else
+            "Schema markup correctly configured.",
+        },
+        {
+            "check": f"Image alt text ({imgs_no_alt} of {total_imgs} missing)",
+            "status": "fail" if imgs_no_alt > 5 else ("warn" if imgs_no_alt > 0 else "pass"),
+            "detail": (
+                f"{imgs_no_alt} of {total_imgs} images have no alt text. Alt text tells Google what "
+                "each image shows (supporting image search rankings) and reads aloud to screen readers. "
+                "Add descriptive alt text to every clinic, team, and service image in the media library."
+            ) if imgs_no_alt > 0 else
+            "All images have alt text correctly set.",
+        },
+        {
+            "check": "Homepage content depth",
+            "status": "warn" if word_count < 500 else "pass",
+            "detail": (
+                f"The homepage has approximately {word_count} words of visible content. "
+                f"For competitive {specialty.lower()} keywords, Google typically ranks pages with "
+                "600-1,000 words of relevant content above thin pages. Adding service summaries, "
+                "a short FAQ section, and location details would strengthen keyword coverage "
+                "without affecting the visual design."
+            ) if word_count < 500 else
+            f"Homepage has {word_count} words of content - strong depth for SEO.",
+        },
+        {
+            "check": "SSL certificate (HTTPS)",
+            "status": "pass" if d.get("has_ssl", True) else "fail",
+            "detail": (
+                "Site is served over HTTPS with a valid SSL certificate. "
+                "This is a baseline Google ranking requirement."
+            ) if d.get("has_ssl", True) else
+            "Site is not served over HTTPS. This is a critical security and ranking issue - contact the host immediately.",
+        },
+        {
+            "check": "XML sitemap",
+            "status": "pass" if has_sitemap else "fail",
+            "detail": (
+                f"A sitemap is in place covering {pages_indexed} pages and posts. "
+                "Keep service and location pages updated in the sitemap as content is added."
+            ) if has_sitemap else
+            "No sitemap found. Most WordPress SEO plugins (Rank Math, Yoast) generate one automatically. Submit via Google Search Console.",
+        },
+        {
+            "check": "Suburb-specific landing pages",
+            "status": "warn" if is_multi else "pass",
+            "detail": (
+                f"With clinics across {location}, there is a significant opportunity to rank for "
+                f"suburb-level searches. Google tends to rank location-specific pages above generic "
+                f"service pages when a searcher includes a suburb name. Each location page needs "
+                "400+ words of local content, the specific address, team photo, directions, and a booking CTA."
+            ) if is_multi else
+            "Location page in place.",
+        },
+    ]
+
+    rows = [["Check", "Status", "Detail"]]
+    status_map = {
+        "pass": lambda: Paragraph("GOOD",   styles["tag_green"]),
+        "warn": lambda: Paragraph("REVIEW", styles["tag_amber"]),
+        "fail": lambda: Paragraph("FIX",    styles["tag_red"]),
+    }
+    for c in checks:
+        rows.append([
+            Paragraph(c["check"], styles["body_bold"]),
+            status_map[c["status"]](),
+            Paragraph(c["detail"], styles["body"]),
+        ])
+
+    col_w = [55*mm, 18*mm, 101*mm]
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(_tbl_style())
+    story.append(tbl)
+
+    if is_multi:
+        _info_box(story, styles,
+            f"The biggest SEO opportunity here is suburb-specific landing pages. Most {specialty.lower()} "
+            f"clinics compete for generic city-level terms. Creating a dedicated page per location - each "
+            "with 500+ words of locally relevant content, the clinic address, a team photo, and a booking "
+            "CTA - would likely rank on page 1 for suburb searches within 3-6 months with no paid spend.")
+    else:
+        _info_box(story, styles,
+            "The highest-leverage SEO fix is adding LocalBusiness schema markup. This unlocks rich results "
+            "in Google Search - star ratings, hours, phone, and address appearing directly in the listing. "
+            "It is a 30-minute setup via the SEO plugin and requires no design changes.")
+
+
+def _ws_section_ux(story, styles, d: dict):
+    story.append(PageBreak())
+    story.append(Paragraph("3. UX & Conversion Flow", styles["section"]))
+    _rule(story)
+
+    specialty  = d.get("specialty", "allied health")
+    spec_lower = specialty.lower()
+
+    if "speech" in spec_lower or "paediatric" in spec_lower or "child" in spec_lower:
+        audience       = "parents"
+        visitor_action = "book an assessment for their child"
+    elif "psychol" in spec_lower or "counsel" in spec_lower:
+        audience       = "clients"
+        visitor_action = "book an appointment"
+    else:
+        audience       = "patients"
+        visitor_action = "book an appointment"
+
+    story.append(Paragraph(
+        f"The job of this website is to reduce hesitation, build trust quickly, and get the "
+        f"{audience} to take one action: {visitor_action}. "
+        "Every friction point below is a reason a visitor might click away instead.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    ux_issues = []
+
+    if d.get("mobile_hero_overlap"):
+        ux_issues.append({
+            "issue":    "Mobile layout: hero section needs attention",
+            "severity": "HIGH",
+            "detail": (
+                f"On mobile viewports (390px wide - the most common screen size for local health searches), "
+                f"the homepage hero has layout issues that make the first impression look unpolished. "
+                f"This is the first thing a {audience} sees when they arrive on mobile, and most local "
+                "clinic searches happen on a phone."
+            ),
+            "fix": "Add a CSS breakpoint below 480px that stacks hero elements cleanly. Test on iPhone 14 and a mid-range Android before publishing.",
+        })
+
+    if d.get("cta_label_mismatch"):
+        ux_issues.append({
+            "issue":    "CTA label does not match what the button delivers",
+            "severity": "HIGH",
+            "detail": (
+                f"The primary call-to-action button says 'Book Now' but leads to an enquiry form or "
+                f"waitlist process rather than an actual booking. A {audience} who clicks 'Book Now' "
+                "expecting to secure an appointment and instead hits a callback form may not follow through. "
+                "The label should accurately describe the next step."
+            ),
+            "fix": "Rename the CTA to match the actual process: 'Submit an Enquiry', 'Join the Waitlist', or 'Request a Callback'. Or set up direct online booking.",
+        })
+
+    booking_steps = d.get("booking_steps", 0)
+    if booking_steps >= 4:
+        ux_issues.append({
+            "issue":    f"Booking process has high friction ({booking_steps} steps before confirmation)",
+            "severity": "MEDIUM",
+            "detail": (
+                f"The booking or enquiry process takes {booking_steps} steps before any confirmation. "
+                f"{audience.capitalize()} on mobile - often mid-commute or mid-school-run - may abandon "
+                "a long form before completing it. Consider whether the first contact step can be reduced "
+                "to name, phone, and preferred time, with clinical detail collected later."
+            ),
+            "fix": "Test a 2-3 step version capturing only essential contact details first. Collect clinical information via a follow-up call.",
+        })
+
+    if not d.get("social_proof_above_fold"):
+        ux_issues.append({
+            "issue":    "No trust signals visible above the fold",
+            "severity": "HIGH",
+            "detail": (
+                f"The homepage shows the clinic name and headline, but no professional credibility signals "
+                f"are visible without scrolling. For a {audience} choosing a healthcare provider, "
+                "professional body logos, years in practice, and a Google review count are powerful trust signals. "
+                "Note: patient testimonials are restricted under AHPRA guidelines, but professional association "
+                "logos, credentials, and years established are fully permitted."
+            ),
+            "fix": "Add a credential bar below the hero: professional body logo, NDIS registration if applicable, years established, and Google review count.",
+        })
+
+    if d.get("external_links_dilute"):
+        ux_issues.append({
+            "issue":    "External links on key pages dilute the conversion funnel",
+            "severity": "MEDIUM",
+            "detail": (
+                f"Several pages link to external websites - funding bodies, professional associations, "
+                f"or resource hubs. While well-intentioned, these links send {audience} away from the "
+                "site before they have booked. A visitor who clicks through to an external resource "
+                "may not return."
+            ),
+            "fix": "Move external resource links to a dedicated 'Resources' page. Keep service and location pages focused on the booking CTA.",
+        })
+
+    if d.get("no_pricing_on_service_pages"):
+        ux_issues.append({
+            "issue":    "Pricing not visible from service pages",
+            "severity": "MEDIUM",
+            "detail": (
+                f"Service pages contain no pricing information or link to a fees page. "
+                f"A {audience} researching whether they can afford services has to independently navigate "
+                "to a separate fees page. Removing this step reduces a key pre-booking barrier."
+            ),
+            "fix": "Add a 'From $X per session - see full fees' callout with a link to the fees page on each service page.",
+        })
+
+    if not ux_issues:
+        ux_issues.append({
+            "issue":    "UX fundamentals are in good shape",
+            "severity": "LOW",
+            "detail":   "No critical UX issues were identified during this audit. The site presents clearly and the conversion flow is logical.",
+            "fix":      "Continue monitoring user behaviour via Google Analytics and Search Console.",
+        })
+
+    sev_style = {
+        "HIGH":   styles["tag_red"],
+        "MEDIUM": styles["tag_amber"],
+        "LOW":    styles["tag_green"],
+    }
+
+    rows = [["Issue", "Impact", "Fix"]]
+    for item in ux_issues:
+        rows.append([
+            Paragraph(
+                f"<b>{item['issue']}</b><br/>"
+                f"<font size='8' color='#6b7280'>{item['detail']}</font>",
+                styles["body"]),
+            Paragraph(item["severity"], sev_style[item["severity"]]),
+            Paragraph(item["fix"], styles["small"]),
+        ])
+
+    col_w = [100*mm, 18*mm, 56*mm]
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1,  0), PURPLE),
+        ("TEXTCOLOR",     (0, 0), (-1,  0), WHITE),
+        ("FONTNAME",      (0, 0), (-1,  0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1,  0), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 1), (-1, -1), 8),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, LIGHT_BG]),
+        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("ALIGN",         (1, 0), ( 1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(tbl)
+    _spacer(story, 2)
+
+
+def _ws_section_content(story, styles, d: dict):
+    _spacer(story, 10)
+    story.append(Paragraph("4. Content & Local Authority", styles["section"]))
+    _rule(story)
+
+    specialty  = d.get("specialty", "allied health")
+    location   = d.get("location", "")
+    blog_posts = d.get("blog_posts", 0)
+    has_blog   = d.get("has_blog", False)
+    spec_lower = specialty.lower()
+
+    if "psychol" in spec_lower or "counsel" in spec_lower:
+        audience    = "clients and referrers"
+        blog_topics = ("'what to expect from your first psychology session', "
+                       "'anxiety vs depression - what is the difference', "
+                       "'how to find a psychologist in [suburb]', "
+                       "'ADHD assessment for adults', "
+                       "'when should you see a psychologist'")
+        ndis_desc = f"NDIS Psychology page targeting 'NDIS psychologist {location.split(',')[0].strip() if location else '[suburb]'}'"
+    elif "speech" in spec_lower:
+        audience    = "parents and referrers"
+        _speech_suburb = location.split(",")[0].strip() if location else "[suburb]"
+        blog_topics = ("'when should my child see a speech pathologist', "
+                       "'speech delay vs speech disorder', "
+                       f"'NDIS speech therapy {_speech_suburb}', "
+                       "'how to help a late talker at home', "
+                       "'what happens at the first speech pathology appointment'")
+        ndis_desc = "NDIS Speech Pathology page"
+    elif "physio" in spec_lower:
+        audience    = "patients and referrers"
+        blog_topics = ("'how long does physio take for [condition]', "
+                       "'when to see a physio vs a GP', "
+                       "'sports injury recovery timeline', "
+                       "'physio exercises for lower back pain', "
+                       "'does Medicare cover physiotherapy'")
+        ndis_desc = "NDIS Physiotherapy page"
+    else:
+        audience    = "patients and referrers"
+        blog_topics = (f"'what to expect at your first {specialty.lower()} appointment', "
+                       f"'does Medicare cover {specialty.lower()}', "
+                       f"'how to find a {specialty.lower()} near me', "
+                       f"'NDIS and {specialty.lower()}', "
+                       "'[condition] treatment options'")
+        ndis_desc = f"NDIS {specialty} page"
+
+    locations = [l.strip() for l in location.replace("&", ",").split(",")
+                 if l.strip() and len(l.strip()) < 35]
+    is_multi  = len(locations) > 1
+    primary   = locations[0] if locations else location
+
+    if not has_blog or blog_posts == 0:
+        blog_current     = "No blog found on the site."
+        blog_opportunity = (f"Start with 1 post per month targeting questions {audience} "
+                            f"actually search. Topics: {blog_topics}.")
+    elif blog_posts < 10:
+        blog_current     = f"{blog_posts} posts published."
+        blog_opportunity = f"Aim for 1 post per month. High-value topics: {blog_topics}."
+    else:
+        blog_current     = f"{blog_posts} posts published - strong content library."
+        blog_opportunity = (f"Maintain at least 1 post per month. Prioritise suburb-specific and "
+                            "condition-specific content. Update older posts annually.")
+
+    if is_multi:
+        loc_current     = f"Clinic operates across {location}."
+        loc_names       = " and ".join(locations[:2]) if len(locations) >= 2 else primary
+        loc_opportunity = (f"Each location page should have 400+ words of local content: suburb context, "
+                           f"team photo, nearby areas served, directions, and a booking CTA. "
+                           f"Target '{specialty.lower()} [suburb]' as the primary keyword for each page.")
+    else:
+        loc_current     = f"Single location in {primary}."
+        loc_opportunity = (f"Consider a suburb-radius content strategy - blog posts targeting nearby suburbs "
+                           f"(e.g. '{specialty.lower()} near [adjacent suburb]') extend reach without new premises.")
+
+    story.append(Paragraph(
+        f"Content is how Google decides which clinic is the authority on {specialty.lower()} "
+        f"in a given suburb. The more relevant, helpful content on the site, the more often "
+        f"it appears when {audience} search.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    content_rows = [
+        ["Area", "Current State", "Opportunity"],
+        [
+            Paragraph("Blog / Articles", styles["body_bold"]),
+            Paragraph(blog_current, styles["body"]),
+            Paragraph(blog_opportunity, styles["small"]),
+        ],
+        [
+            Paragraph("FAQ content", styles["body_bold"]),
+            Paragraph("Check whether frequently asked questions are answered on service pages or a dedicated FAQ page.", styles["body"]),
+            Paragraph(
+                f"A well-structured FAQ targeting questions {audience} actually Google ranks in featured "
+                "snippets and reduces pre-booking uncertainty. Aim for 15-20 questions.",
+                styles["small"]),
+        ],
+        [
+            Paragraph("NDIS content", styles["body_bold"]),
+            Paragraph("NDIS mentions noted across the site.", styles["body"]),
+            Paragraph(
+                f"A dedicated {ndis_desc} would attract plan managers, support coordinators, and "
+                "self-managed NDIS participants - high-intent, high-value referrers.",
+                styles["small"]),
+        ],
+        [
+            Paragraph("Location pages", styles["body_bold"]),
+            Paragraph(loc_current, styles["body"]),
+            Paragraph(loc_opportunity, styles["small"]),
+        ],
+        [
+            Paragraph("Service depth", styles["body_bold"]),
+            Paragraph("Service pages describe core offerings.", styles["body"]),
+            Paragraph(
+                "Expanding each service page to 400+ words with a 'what to expect' section, "
+                "who it helps, and a clear booking CTA improves both rankings and confidence before enquiry.",
+                styles["small"]),
+        ],
+        [
+            Paragraph("Team profiles", styles["body_bold"]),
+            Paragraph("About page includes team credentials.", styles["body"]),
+            Paragraph(
+                "Short practitioner profiles with photo, credentials, and specialty areas build trust. "
+                "Video introductions from 1-2 practitioners increase time-on-page significantly.",
+                styles["small"]),
+        ],
+    ]
+
+    col_w = [35*mm, 65*mm, 74*mm]
+    tbl = Table(content_rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(_tbl_style())
+    story.append(tbl)
+    _info_box(story, styles,
+        "The highest-ROI content investment for most allied health clinics is a dedicated NDIS page. "
+        "NDIS families often have plan managers doing the research on their behalf - these are "
+        "high-intent, high-value referrers who search specific terms. A well-optimised NDIS page "
+        "typically generates 5-10 new referrals per month within 6 months of publishing.")
+
+
+def _ws_section_priorities(story, styles, d: dict):
+    story.append(PageBreak())
+    story.append(Paragraph("5. Priority Fix List", styles["section"]))
+    _rule(story)
+
+    story.append(Paragraph(
+        "Ranked by impact. Start with the Critical items - they affect every visitor and every search "
+        "result. The Quick Wins can be done in under an hour each.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    specialty   = d.get("specialty", "allied health")
+    location    = d.get("location", "")
+    website_url = d.get("website_url", "")
+    audit_date  = d.get("audit_date", "")
+    spec_lower  = specialty.lower()
+
+    if "psychol" in spec_lower or "counsel" in spec_lower:
+        schema_type = "PsychologistService"
+    elif "speech" in spec_lower:
+        schema_type = "MedicalBusiness (SpeechTherapist)"
+    else:
+        schema_type = "LocalBusiness or MedicalBusiness"
+
+    locations = [l.strip() for l in location.replace("&", ",").split(",")
+                 if l.strip() and len(l.strip()) < 35]
+    is_multi  = len(locations) > 1
+    primary   = locations[0] if locations else location
+    h1_example = f"{specialty} in {primary}" if primary else specialty
+
+    priorities = []
+
+    # ── CRITICAL ──────────────────────────────────────────────────────────────
+    h1_count = d.get("h1_count", 1)
+    if h1_count != 1:
+        priorities.append((
+            "CRITICAL",
+            "Fix duplicate H1 tags across the site",
+            f"There are {h1_count} H1 headings on the homepage, and other pages (team, location) "
+            "may carry additional H1s on every practitioner name. Google uses the H1 as the primary "
+            "topic signal per page. Set one H1 per page targeting the main keyword - e.g. "
+            f"'{h1_example}'. All practitioner names and sub-headings should be H2 or H3.",
+            RED_WARN, RED_LIGHT,
+        ))
+
+    if not d.get("schema_ok"):
+        priorities.append((
+            "CRITICAL",
+            "Add LocalBusiness schema markup to every page",
+            f"No valid structured data is set on this site. Google uses {schema_type} schema to show "
+            "rich results - star ratings, opening hours, address, and phone in search listings. "
+            "Configure via the SEO plugin (Rank Math or Yoast). Takes 30-45 minutes and requires "
+            "no design changes.",
+            RED_WARN, RED_LIGHT,
+        ))
+
+    if not d.get("og_image_ok"):
+        priorities.append((
+            "CRITICAL",
+            "Replace Open Graph image with a real clinic photo",
+            "Every time someone shares this website on Facebook, WhatsApp, or LinkedIn, a small icon "
+            "appears as the preview image. This undermines credibility at the moment of referral. "
+            "Upload a 1200x630px clinic or team photo to the SEO plugin social settings.",
+            RED_WARN, RED_LIGHT,
+        ))
+
+    imgs_no_alt = d.get("images_missing_alt", 0)
+    total_imgs  = d.get("total_images", 1)
+    if imgs_no_alt > 0:
+        pct = round(imgs_no_alt / total_imgs * 100)
+        priorities.append((
+            "CRITICAL",
+            f"Add alt text to {imgs_no_alt} images ({pct}% of total)",
+            f"{imgs_no_alt} of {total_imgs} images have no alt text. This harms accessibility for "
+            "screen reader users and prevents Google from understanding the images. Add descriptive "
+            "alt text to every image in the WordPress media library. Takes approximately 30 minutes.",
+            RED_WARN, RED_LIGHT,
+        ))
+
+    if d.get("cta_label_mismatch"):
+        priorities.append((
+            "CRITICAL",
+            "Fix the CTA - 'Book Now' must deliver what it promises",
+            "The primary CTA says 'Book Now' but leads to an enquiry or waitlist form, not a booking. "
+            "This creates a trust gap at the highest-intent moment. Either set up direct online booking, "
+            "or rename the CTA to accurately describe the next step: 'Submit an Enquiry', "
+            "'Join the Waitlist', or 'Request a Callback'.",
+            RED_WARN, RED_LIGHT,
+        ))
+
+    # ── HIGH ──────────────────────────────────────────────────────────────────
+    js_files  = d.get("js_files", 0)
+    css_files = d.get("css_files", 0)
+    if js_files > 20 or css_files > 15:
+        priorities.append((
+            "HIGH",
+            "Reduce JavaScript and CSS file bloat",
+            f"The site loads {js_files} JavaScript files and {css_files} CSS stylesheets on every page. "
+            "The healthy range is under 10 JS and 8 CSS. Installing WP Rocket (~$59/yr) with asset "
+            "minification and bundling reduces these to 2-4 files each, cutting load time by 50-70% "
+            "and directly improving the mobile experience.",
+            AMBER, AMBER_LIGHT,
+        ))
+
+    if d.get("mobile_hero_overlap"):
+        priorities.append((
+            "HIGH",
+            "Fix mobile hero layout",
+            "On mobile viewports the homepage hero has layout issues. Most local clinic searches happen "
+            "on a phone - this is the first impression for the majority of visitors. A CSS fix at the "
+            "480px breakpoint resolves this. Test on both iPhone and Android before publishing.",
+            AMBER, AMBER_LIGHT,
+        ))
+
+    if not d.get("social_proof_above_fold"):
+        priorities.append((
+            "HIGH",
+            "Add trust signals above the fold",
+            "No professional credentials are visible without scrolling. Add a credential bar below the "
+            "hero: professional body logo, NDIS registration if applicable, years established, and "
+            "Google review count. All of this is AHPRA-compliant - no patient testimonials required.",
+            AMBER, AMBER_LIGHT,
+        ))
+
+    if not d.get("has_lazy_load"):
+        priorities.append((
+            "HIGH",
+            "Enable lazy loading on images",
+            "Images load on page load regardless of whether the visitor has scrolled to them. "
+            "Adding loading='lazy' to below-the-fold images reduces initial page weight and improves "
+            "mobile load speed. Enable via WP Rocket or add the attribute in the theme.",
+            AMBER, AMBER_LIGHT,
+        ))
+
+    # ── MEDIUM ────────────────────────────────────────────────────────────────
+    if d.get("no_pricing_on_service_pages"):
+        priorities.append((
+            "MEDIUM",
+            "Add pricing visibility to service pages",
+            "Service pages carry no pricing or link to a fees page. Someone researching affordability "
+            "has to find the fees page independently. A 'From $X per session - see full fees' callout "
+            "with a link removes this barrier on every service page.",
+            PURPLE, LIGHT_BG,
+        ))
+
+    if is_multi:
+        loc_list = " and ".join(locations[:2]) if len(locations) >= 2 else primary
+        priorities.append((
+            "MEDIUM",
+            f"Optimise location landing pages for {loc_list}",
+            f"Location pages exist but should be expanded with local content: 400+ words per page, "
+            f"suburb-specific intro, team members at that location, nearby areas served, directions, "
+            f"and a booking CTA. Each page should target '{specialty.lower()} [suburb]' as its H1.",
+            PURPLE, LIGHT_BG,
+        ))
+
+    if d.get("homepage_word_count", 500) < 500:
+        priorities.append((
+            "MEDIUM",
+            "Expand homepage content depth",
+            f"The homepage is under 500 words. For competitive {specialty.lower()} keywords, Google "
+            "typically ranks pages with 600-1,000 words above thin pages. Adding service summaries, "
+            "location details, and an FAQ section would strengthen keyword coverage with no design changes.",
+            PURPLE, LIGHT_BG,
+        ))
+
+    # ── QUICK WINS ────────────────────────────────────────────────────────────
+    if not d.get("has_sitemap"):
+        priorities.append((
+            "QUICK WIN",
+            "Create and submit an XML sitemap",
+            "No sitemap found. Enable the sitemap feature in Rank Math or Yoast SEO (both free). "
+            "Submit the sitemap URL in Google Search Console. 15-minute fix.",
+            GREEN_OK, GREEN_LIGHT,
+        ))
+
+    if not d.get("has_webp"):
+        priorities.append((
+            "QUICK WIN",
+            "Convert images to WebP format",
+            "No WebP images detected. WebP is 25-35% smaller than PNG/JPG at equivalent quality. "
+            "The Smush or ShortPixel plugin converts images automatically on upload. "
+            "Enable in the plugin dashboard.",
+            GREEN_OK, GREEN_LIGHT,
+        ))
+
+    priorities.append((
+        "QUICK WIN",
+        "Add Google review count near the hero CTA",
+        "A single line showing the Google rating and review count near the booking button "
+        "('4.9 stars - 120+ Google Reviews') increases click-through by reducing uncertainty at the "
+        "decision moment. This is AHPRA-compliant - it references a third-party platform.",
+        GREEN_OK, GREEN_LIGHT,
+    ))
+
+    rows = [["Priority", "Action", "Detail"]]
+    for pri, action, detail, pri_color, pri_bg in priorities:
+        pri_style = ParagraphStyle("ps", fontName="Helvetica-Bold", fontSize=7,
+                                   textColor=pri_color, leading=10, alignment=TA_CENTER)
+        rows.append([
+            Paragraph(pri, pri_style),
+            Paragraph(f"<b>{action}</b>", styles["body_bold"]),
+            Paragraph(detail, styles["body"]),
+        ])
+
+    col_w = [22*mm, 58*mm, 94*mm]
+    tbl = Table(rows, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1,  0), PURPLE),
+        ("TEXTCOLOR",     (0, 0), (-1,  0), WHITE),
+        ("FONTNAME",      (0, 0), (-1,  0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1,  0), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 1), (-1, -1), 8),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [WHITE, LIGHT_BG]),
+        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("ALIGN",         (0, 0), ( 0, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(tbl)
+    _spacer(story, 4)
+
+    _gold_rule(story)
+    story.append(Paragraph(
+        f"This report was prepared by Clinic Mastery based on a manual audit of "
+        f"{website_url} conducted on {audit_date}. "
+        "All recommendations are prioritised by patient acquisition impact. "
+        "clinicmastery.com",
+        styles["small"]))
+
+
+def generate_website_audit(audit_data: dict) -> bytes:
+    """
+    Generates a branded website audit PDF for a clinic.
+
+    Args:
+        audit_data: Dict of audit findings (see _ws_* section builders for keys).
+
+    Returns:
+        PDF as bytes.
+    """
+    buffer = io.BytesIO()
+    clinic_name = audit_data.get("clinic_name", "Clinic")
+    audit_date = audit_data.get("audit_date", datetime.utcnow().strftime("%Y-%m-%d"))
+
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=MARGIN, rightMargin=MARGIN,
+        topMargin=16*mm, bottomMargin=22*mm,
+        title=f"Website Audit - {clinic_name}",
+        author="Clinic Mastery",
+    )
+
+    styles = _styles()
+    story = []
+
+    # Header
+    logo_cell = ""
+    if LOGO_PATH.exists():
+        logo_cell = Image(str(LOGO_PATH), width=14*mm, height=18*mm, kind="proportional")
+
+    title = Paragraph(
+        f"Website Audit Report<br/>"
+        f"<font size='11' color='#6b7280'>{clinic_name}</font>",
+        styles["title"],
+    )
+    date_p = Paragraph(f"Audited {audit_date}", ParagraphStyle(
+        "dr", fontName="Helvetica", fontSize=9, textColor=MID_GREY, alignment=TA_RIGHT))
+
+    hdr = Table([[logo_cell, title, date_p]], colWidths=[22*mm, 115*mm, 38*mm])
+    hdr.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+        ("RIGHTPADDING", (-1, 0), (-1, 0), 0),
+    ]))
+    story.append(hdr)
+    _gold_rule(story)
+
+    website_url = audit_data.get("website_url", "")
+    specialty = audit_data.get("specialty", "")
+    location = audit_data.get("location", "")
+
+    story.append(Paragraph(
+        f"This report covers a manual audit of <b>{website_url}</b> for <b>{clinic_name}</b>, "
+        f"a {specialty} practice based in {location}. "
+        f"It assesses site speed, SEO structure, and user experience with a prioritised fix list at the end. "
+        f"All findings are scored against the standard that drives patient acquisition - not just technical compliance.",
+        styles["body"]))
+    _spacer(story, 4)
+
+    _ws_scorecard(story, styles, audit_data)
+    _ws_section_speed(story, styles, audit_data)
+    _ws_section_seo(story, styles, audit_data)
+    _ws_section_ux(story, styles, audit_data)
+    _ws_section_content(story, styles, audit_data)
+    _ws_section_priorities(story, styles, audit_data)
+
+    page_cb = _make_page_cb(clinic_name, audit_date, "Website Audit Report")
     doc.build(story, onFirstPage=page_cb, onLaterPages=page_cb)
     return buffer.getvalue()

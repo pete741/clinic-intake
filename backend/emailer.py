@@ -88,10 +88,16 @@ def _send(
         return False
 
 
-def send_submission_notification(submission: dict) -> bool:
+def send_submission_notification(submission: dict, collision: dict | None = None) -> bool:
     """
     Fires immediately when the intake form is received. Sends a quick
     heads-up email so pete knows a new clinic has come through, no PDF.
+
+    `collision` is set when the phone-based GHL match landed on a contact
+    whose existing clinic name or specialty differs from the incoming
+    submission. We render a red banner at the top of the email so Pete
+    can spot phone-number reuse before it silently corrupts a real
+    client's record (CWC ← Hfg incident on 2026-05-03).
     """
     clinic_name = submission.get("clinic_name", "Unknown")
     has_ads     = submission.get("has_google_ads") or "Not provided"
@@ -133,6 +139,42 @@ def send_submission_notification(submission: dict) -> bool:
             f"</tr>\n"
         )
 
+    collision_banner = ""
+    if collision:
+        diff_rows = ""
+        if collision.get("clinic_changed"):
+            diff_rows += (
+                f'<tr><td style="padding:6px 10px;color:#991B1B;width:38%;">Existing clinic name</td>'
+                f'<td style="padding:6px 10px;color:#1f2937;">{collision.get("existing_clinic", "-")}</td></tr>'
+                f'<tr><td style="padding:6px 10px;color:#991B1B;">New clinic name</td>'
+                f'<td style="padding:6px 10px;color:#1f2937;font-weight:600;">{collision.get("incoming_clinic", "-")}</td></tr>'
+            )
+        if collision.get("spec_changed"):
+            diff_rows += (
+                f'<tr><td style="padding:6px 10px;color:#991B1B;">Existing specialty</td>'
+                f'<td style="padding:6px 10px;color:#1f2937;">{collision.get("existing_specialty", "-")}</td></tr>'
+                f'<tr><td style="padding:6px 10px;color:#991B1B;">New specialty</td>'
+                f'<td style="padding:6px 10px;color:#1f2937;font-weight:600;">{collision.get("incoming_specialty", "-")}</td></tr>'
+            )
+        diff_rows += (
+            f'<tr><td style="padding:6px 10px;color:#991B1B;">Existing email</td>'
+            f'<td style="padding:6px 10px;color:#1f2937;">{collision.get("existing_email", "-")}</td></tr>'
+            f'<tr><td style="padding:6px 10px;color:#991B1B;">New email</td>'
+            f'<td style="padding:6px 10px;color:#1f2937;">{collision.get("incoming_email", "-")}</td></tr>'
+        )
+        collision_banner = f"""
+    <div style="background:#FEE2E2;border:2px solid #DC2626;border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+      <h2 style="color:#991B1B;margin:0 0 8px;font-size:15px;">Possible phone collision detected</h2>
+      <p style="color:#1f2937;margin:0 0 10px;font-size:13px;line-height:1.5;">
+        This submission's <strong>{collision.get("matched_via", "phone")}</strong> matched an existing GHL contact
+        (<code>{collision.get("contact_id", "-")}</code>) whose stored data looks like a different clinic.
+        The submission has been written through, but check whether the wrong phone or email was entered before
+        sending anything to the clinic.
+      </p>
+      <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:6px;font-size:12px;">
+{diff_rows}      </table>
+    </div>"""
+
     html = f"""
 <div style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:24px;">
   <div style="background:#534AB7;padding:16px 24px;border-radius:8px 8px 0 0;">
@@ -141,6 +183,7 @@ def send_submission_notification(submission: dict) -> bool:
   </div>
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;
               padding:24px;border-radius:0 0 8px 8px;">
+{collision_banner}
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
 {row_html}
     </table>

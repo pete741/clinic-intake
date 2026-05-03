@@ -226,10 +226,76 @@ def _build_custom_fields(data: dict) -> list[dict]:
 
 # ── Contact creation / update ─────────────────────────────────────────────────
 
+def _normalise_name(s: str) -> str:
+    """Lowercase, strip punctuation and surrounding whitespace for fuzzy
+    comparison of clinic names / specialties."""
+    import re as _re
+    return _re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+async def _detect_collision(client: httpx.AsyncClient, contact_id: str, submission) -> Optional[dict]:
+    """Before we PUT new data over an existing contact, fetch its current
+    custom field values and check whether they look like the SAME clinic
+    or a DIFFERENT one that just happens to share the matched phone/email.
+
+    Returns a dict describing the collision when the existing values for
+    primary_specialty or clinic_name differ from the incoming submission;
+    returns None when the data looks consistent.
+
+    Triggered by the CWC ← Hfg incident on 2026-05-03 where a test
+    submission overwrote a real client's contact because both used the
+    same phone number.
+    """
+    try:
+        resp = await client.get(f"{BASE_URL}/contacts/{contact_id}", headers=_headers())
+        if resp.status_code != 200:
+            return None
+        data = resp.json().get("contact", {})
+    except Exception as exc:
+        logger.warning(f"Collision check failed for {contact_id}: {exc}")
+        return None
+
+    cf = {f["id"]: f.get("value") for f in data.get("customFields", [])}
+    spec_id = _field_id_map.get("primary_specialty")
+    name_id = _field_id_map.get("clinic_name")
+    existing_spec = (cf.get(spec_id) or "") if spec_id else ""
+    existing_clinic = (cf.get(name_id) or "") if name_id else ""
+
+    # If neither field was set previously, this is the first time the
+    # contact has gone through the intake form — not a collision.
+    if not existing_spec and not existing_clinic:
+        return None
+
+    incoming_spec = submission.primary_specialty or ""
+    incoming_clinic = submission.clinic_name or ""
+
+    spec_changed = (existing_spec
+                    and _normalise_name(existing_spec) != _normalise_name(incoming_spec))
+    clinic_changed = (existing_clinic
+                      and _normalise_name(existing_clinic) != _normalise_name(incoming_clinic))
+
+    if not (spec_changed or clinic_changed):
+        return None
+
+    return {
+        "contact_id": contact_id,
+        "matched_via": "phone" if submission.phone else "email",
+        "phone": submission.phone or "",
+        "incoming_email": submission.email,
+        "existing_email": data.get("email", ""),
+        "existing_clinic": existing_clinic,
+        "incoming_clinic": incoming_clinic,
+        "existing_specialty": existing_spec,
+        "incoming_specialty": incoming_spec,
+        "spec_changed": spec_changed,
+        "clinic_changed": clinic_changed,
+    }
+
+
 async def create_or_update_contact(
     submission,  # IntakeSubmission model instance
     ads_invite_tag: str,
-) -> Optional[str]:
+) -> tuple[Optional[str], Optional[dict]]:
     """
     Creates or updates a GHL contact for the incoming intake submission.
 
@@ -241,6 +307,12 @@ async def create_or_update_contact(
     For existing contacts: custom fields are updated but tags and source are
     never overwritten. New tags are added additively so existing programme tags
     (e.g. Elevate) and contact type are preserved.
+
+    Returns (contact_id, collision_info). collision_info is a dict when the
+    matched-by-phone (or email) contact's existing data looks like a
+    different clinic from the incoming submission — surfaced in the
+    notification email so Pete can spot phone-number reuse before it
+    silently corrupts a contact.
     """
     new_tags = [
         "intake-submitted",
@@ -275,7 +347,27 @@ async def create_or_update_contact(
             if contact_id:
                 logger.info(f"Found existing contact {contact_id} by email")
 
+        collision: Optional[dict] = None
+
         if contact_id:
+            # Detect potential phone-collision BEFORE we overwrite the
+            # contact's custom fields. We don't block the update (a clinic
+            # rebrand is a legitimate change), but we do flag it loudly.
+            collision = await _detect_collision(client, contact_id, submission)
+            if collision:
+                logger.warning(
+                    "POSSIBLE PHONE COLLISION: contact %s previously stored "
+                    "clinic=%r specialty=%r email=%r. New submission says "
+                    "clinic=%r specialty=%r email=%r. Phone=%r matched both. "
+                    "Updating anyway, but flagging on notification email.",
+                    contact_id,
+                    collision["existing_clinic"], collision["existing_specialty"],
+                    collision["existing_email"],
+                    collision["incoming_clinic"], collision["incoming_specialty"],
+                    collision["incoming_email"],
+                    collision["phone"],
+                )
+
             # Existing contact: update custom fields only — never touch tags or
             # source, so programme tags and contact type are preserved.
             # Note: PUT /contacts/{id} does not accept locationId in the body.
@@ -331,7 +423,7 @@ async def create_or_update_contact(
                 await _add_tag_with_client(client, contact_id, tag)
 
             logger.info(f"Updated existing GHL contact {contact_id} for {submission.clinic_name}")
-            return contact_id
+            return contact_id, collision
 
         # 3. New contact: upsert without tags or source so that if GHL internally
         # matches an existing contact, we never overwrite their tag list or
@@ -367,7 +459,7 @@ async def create_or_update_contact(
         for tag in new_tags:
             await _add_tag_with_client(client, contact_id, tag)
 
-        return contact_id
+        return contact_id, None
 
 
 async def _add_tag_with_client(client: httpx.AsyncClient, contact_id: str, tag: str) -> None:

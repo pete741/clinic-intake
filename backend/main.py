@@ -251,7 +251,7 @@ async def submit_intake(
         ads_tag = "ads-not-applicable"
 
     # Write to GHL — this always happens regardless of Ads status
-    ghl_contact_id = await create_or_update_contact(submission, ads_tag)
+    ghl_contact_id, collision = await create_or_update_contact(submission, ads_tag)
 
     if ghl_contact_id is None:
         logger.error(f"GHL contact creation failed for {submission.clinic_name}")
@@ -265,8 +265,10 @@ async def submit_intake(
         f"with tags: intake-submitted, {ads_tag}"
     )
 
-    # Immediate notification to pete — fires before any PDF generation
-    background_tasks.add_task(send_submission_notification, submission.model_dump())
+    # Immediate notification to pete — fires before any PDF generation.
+    # collision is a dict when the phone match landed on a contact that
+    # looks like a different clinic; the notification renders a banner.
+    background_tasks.add_task(send_submission_notification, submission.model_dump(), collision)
 
     # Google Ads polling is handled by the cron job (poll_worker.py) — nothing to start here.
     # The contact is tagged ads-invite-confirmed and google_ads_data_status=Pending in GHL,

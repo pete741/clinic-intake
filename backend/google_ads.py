@@ -896,6 +896,107 @@ def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: in
     }
 
 
+# ── MCC clinic → account matcher ──────────────────────────────────────────────
+
+# Words that ALL allied health accounts share. They carry no brand signal,
+# so a match on them alone is meaningless and produces cross-clinic mistakes
+# (RL Physiotherapy mismatching Embrace Physiotherapy because both contain
+# "physiotherapy"). Excluded from the match scoring.
+_GENERIC_CLINIC_WORDS = {
+    # Specialties
+    "physiotherapy", "physio", "physiotherapist",
+    "psychology", "psychologist", "psychologists",
+    "counselling", "counsellor", "counsellors",
+    "podiatry", "podiatrist", "podiatrists",
+    "chiropractic", "chiropractor",
+    "osteopathy", "osteopath", "osteo",
+    "naturopathy", "naturopath",
+    "speech", "pathology", "pathologist",
+    "occupational", "therapy", "therapist", "therapists",
+    "dental", "dentist", "dentistry",
+    "optometry", "optometrist",
+    "dietitian", "dietitians", "nutrition", "nutritionist",
+    # Generic clinic descriptors
+    "wellbeing", "well-being", "wellness",
+    "centre", "center", "clinic", "clinics", "practice",
+    "medical", "health", "healthcare", "allied",
+    "ndis", "aquatic", "sports", "family",
+}
+
+
+def _match_clinic_to_account(clinic_name: str, accounts: dict) -> Optional[tuple]:
+    """Pick the most likely Google Ads customer ID for a given clinic name.
+
+    Args:
+        clinic_name: the clinic name from the intake form.
+        accounts: {customer_id: descriptive_name} for all accessible accounts.
+
+    Returns (customer_id, descriptive_name, score) if a confident match is
+    found, otherwise None.
+
+    Strategy: Jaccard similarity on the cleaned word sets. Rejects matches
+    below 0.4 (loose tokens like "physiotherapy" alone score 0.25 to 0.33,
+    so the threshold blocks specialty-only collisions). Also rejects ties
+    at the top score (genuinely ambiguous, safer to ask for an override
+    than to guess wrong).
+    """
+    stop = {"the", "a", "an", "and", "of", "for", "in", "at", "my", "our", "&"}
+
+    def _words(s: str) -> set[str]:
+        return set(_re.sub(r"[^a-z0-9\s]", " ", (s or "").lower()).split())
+
+    clinic_words = _words(clinic_name) - stop
+    if not clinic_words:
+        return None
+    clinic_brand = clinic_words - _GENERIC_CLINIC_WORDS
+
+    candidates: list[tuple[float, str, str]] = []
+    for cid, name in accounts.items():
+        if not name:
+            continue
+        acc_words = _words(name) - stop
+        if not acc_words:
+            continue
+        intersection = clinic_words & acc_words
+        union = clinic_words | acc_words
+        if not intersection:
+            continue
+        jaccard = len(intersection) / len(union)
+
+        # If the clinic name carries any brand word, require brand-word
+        # overlap with the account. This is what blocks "RL Physiotherapy"
+        # collapsing to "Embrace Physiotherapy" via the shared "physiotherapy"
+        # token.
+        if clinic_brand:
+            brand_overlap = intersection - _GENERIC_CLINIC_WORDS
+            if not brand_overlap:
+                continue
+            if jaccard >= 0.4:
+                candidates.append((jaccard, cid, name))
+        else:
+            # Edge case: the clinic name is 100% generic words, e.g.
+            # "The Psychology, Counselling & Wellbeing Centre". No brand
+            # token to gate on, so we require a near-exact match instead.
+            if jaccard >= 0.8:
+                candidates.append((jaccard, cid, name))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+    top = candidates[0]
+
+    # Tied top score = ambiguous, refuse rather than guess.
+    if len(candidates) > 1 and candidates[1][0] == top[0]:
+        logger.warning(
+            f"Ambiguous account match for {clinic_name!r}: tied at jaccard={top[0]:.2f} "
+            f"between {top[2]!r} and {candidates[1][2]!r}. Returning no match."
+        )
+        return None
+
+    return top  # (score, cid, name) — caller pulls cid + name
+
+
 # ── Immediate report trigger ──────────────────────────────────────────────────
 
 async def run_ads_report_now(
@@ -927,30 +1028,23 @@ async def run_ads_report_now(
             customer_ids = _get_accessible_customer_ids(client)
             logger.info(f"[Force] Found {len(customer_ids)} accessible accounts")
 
-            def _words(s):
-                return set(_re.sub(r'[^a-z0-9\s]', '', s.lower()).split())
+            account_names = {cid: _get_account_name(client, cid) for cid in customer_ids}
+            for cid, name in account_names.items():
+                logger.info(f"  [Force] Account: {cid} -> {name!r}")
 
-            stop = {'the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'my', 'our'}
-            clinic_words = _words(clinic_name) - stop
-
-            matched_id = None
-            account_names = {}
-            for cid in customer_ids:
-                account_name = _get_account_name(client, cid)
-                account_names[cid] = account_name
-                logger.info(f"  [Force] Account: {cid} -> '{account_name}'")
-                account_words = _words(account_name) - stop
-                if clinic_words & account_words:
-                    matched_id = cid
-                    logger.info(f"[Force] Matched '{clinic_name}' to account '{account_name}' ({cid})")
-                    break
-
-            if not matched_id:
+            match = _match_clinic_to_account(clinic_name, account_names)
+            if match is None:
                 return {
                     "status": "not_found",
-                    "detail": f"No Google Ads account found matching '{clinic_name}'",
+                    "detail": f"No confident Google Ads account match for '{clinic_name}'",
                     "accounts_checked": list(account_names.values()),
                 }
+
+            score, matched_id, matched_name = match
+            logger.info(
+                f"[Force] Matched '{clinic_name}' to '{matched_name}' "
+                f"({matched_id}) at jaccard={score:.2f}"
+            )
 
         # Pull full account data - clinic_name is required for brand-keyword
         # detection and specialty inference (drives the irrelevance rules).

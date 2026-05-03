@@ -700,14 +700,29 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   }
   .card-sub { font-size: 12px; color: var(--cm-body-grey); margin-bottom: 16px; }
 
-  /* CAMPAIGN / VISIBILITY ROWS */
-  .row-block {
-    display: grid; grid-template-columns: 1fr auto; gap: 16px;
-    align-items: center; padding: 14px 0; border-bottom: 0.5px solid var(--cm-divider);
+  /* CAMPAIGN / VISIBILITY ROWS using HTML table with table-layout: fixed.
+     Both flex and grid produced overflow in WeasyPrint when fixed-width
+     stat columns met an auto-width campaign name column. Tables with
+     fixed layout cannot exceed their container's width, period. */
+  table.row-block {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    border-bottom: 0.5px solid var(--cm-divider);
     page-break-inside: avoid; break-inside: avoid;
   }
-  .row-block:last-child { border-bottom: none; padding-bottom: 4px; }
-  .row-block:first-child { padding-top: 4px; }
+  table.row-block:last-of-type { border-bottom: none; }
+  table.row-block td {
+    vertical-align: middle;
+    padding: 14px 0;
+  }
+  table.row-block td.row-info { padding-right: 16px; }
+  table.row-block td.row-stat {
+    width: 80px;
+    text-align: right;
+    padding-left: 6px;
+    vertical-align: top;
+  }
   .row-name {
     font-family: 'Lexend', sans-serif; font-size: 13px; font-weight: 500;
     color: var(--cm-charcoal); margin-bottom: 6px;
@@ -719,15 +734,16 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
     border-radius: 3px; margin-top: 8px; overflow: hidden;
   }
   .row-bar-fill { height: 100%; background: var(--cm-purple); border-radius: 3px; }
-  .row-stats { display: flex; gap: 18px; text-align: right; }
   .row-stat-num {
     font-family: 'Lexend', sans-serif; font-size: 16px; font-weight: 700;
     color: var(--cm-purple); line-height: 1.1;
+    white-space: nowrap;
   }
   .row-stat-label {
     font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--cm-body-grey); margin-top: 4px;
-    white-space: nowrap;
+    line-height: 1.25;
+    white-space: nowrap; overflow: hidden;
   }
 
   /* INSIGHT CARDS */
@@ -908,20 +924,29 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
       <div class="card-title">Spend, conversions, and cost per conversion by campaign.</div>
       <div class="card-sub">Bars scaled to the largest campaign by spend.</div>
       {% for c in top_campaigns %}
-      <div class="row-block">
-        <div>
-          <div class="row-name">{{ c.name }}</div>
-          <div class="row-meta">
-            <strong>{{ "%.1f"|format(c.share_pct) }}%</strong> of spend · CTR <strong>{{ "%.1f"|format(c.ctr) }}%</strong>
-          </div>
-          <div class="row-bar"><div class="row-bar-fill" style="width: {{ "%.1f"|format(c.share_bar_pct) }}%; background: {% if c.is_first %}var(--cm-purple){% else %}var(--cm-orange){% endif %};"></div></div>
-        </div>
-        <div class="row-stats">
-          <div><div class="row-stat-num">{{ c.spend | money_round }}</div><div class="row-stat-label">Spend</div></div>
-          <div><div class="row-stat-num">{{ c.conv | pint }}</div><div class="row-stat-label">Conv</div></div>
-          <div><div class="row-stat-num">{{ c.cost_per_conv | money_2dp }}</div><div class="row-stat-label">Cost/Conv</div></div>
-        </div>
-      </div>
+      <table class="row-block">
+        <tr>
+          <td class="row-info">
+            <div class="row-name">{{ c.name }}</div>
+            <div class="row-meta">
+              <strong>{{ "%.1f"|format(c.share_pct) }}%</strong> of spend · CTR <strong>{{ "%.1f"|format(c.ctr) }}%</strong>
+            </div>
+            <div class="row-bar"><div class="row-bar-fill" style="width: {{ "%.1f"|format(c.share_bar_pct) }}%; background: {% if c.is_first %}var(--cm-purple){% else %}var(--cm-orange){% endif %};"></div></div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ c.spend | money_round }}</div>
+            <div class="row-stat-label">Spend</div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ c.conv | pint }}</div>
+            <div class="row-stat-label">Conv</div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ c.cost_per_conv | money_2dp }}</div>
+            <div class="row-stat-label">Per conv</div>
+          </td>
+        </tr>
+      </table>
       {% endfor %}
     </div>
   </div>
@@ -934,20 +959,29 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
       <div class="card-title">Impression share won, vs share lost to budget and to ad rank.</div>
       <div class="card-sub">Lost to rank means quality scores or bids are too low. Lost to budget means the campaign ran out of money before end of day.</div>
       {% for v in visibility_rows %}
-      <div class="row-block">
-        <div>
-          <div class="row-name">{{ v.name }}</div>
-          <div class="row-meta">
-            Winning <strong>{{ v.is_pct | pct_int }}</strong> of eligible auctions · biggest loss: <strong>{{ v.bigger_loss }}</strong>
-          </div>
-          <div class="row-bar"><div class="row-bar-fill" style="width: {{ v.is_pct or 0 }}%; background: var(--cm-purple);"></div></div>
-        </div>
-        <div class="row-stats">
-          <div><div class="row-stat-num">{{ v.is_pct | pct_int }}</div><div class="row-stat-label">Won</div></div>
-          <div><div class="row-stat-num">{{ v.lost_budget | pct_int }}</div><div class="row-stat-label">Lost: Budget</div></div>
-          <div><div class="row-stat-num">{{ v.lost_rank | pct_int }}</div><div class="row-stat-label">Lost: Rank</div></div>
-        </div>
-      </div>
+      <table class="row-block">
+        <tr>
+          <td class="row-info">
+            <div class="row-name">{{ v.name }}</div>
+            <div class="row-meta">
+              Winning <strong>{{ v.is_pct | pct_int }}</strong> of eligible auctions · biggest loss: <strong>{{ v.bigger_loss }}</strong>
+            </div>
+            <div class="row-bar"><div class="row-bar-fill" style="width: {{ v.is_pct or 0 }}%; background: var(--cm-purple);"></div></div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ v.is_pct | pct_int }}</div>
+            <div class="row-stat-label">Won</div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ v.lost_budget | pct_int }}</div>
+            <div class="row-stat-label">Lost: budget</div>
+          </td>
+          <td class="row-stat">
+            <div class="row-stat-num">{{ v.lost_rank | pct_int }}</div>
+            <div class="row-stat-label">Lost: rank</div>
+          </td>
+        </tr>
+      </table>
       {% endfor %}
     </div>
   </div>

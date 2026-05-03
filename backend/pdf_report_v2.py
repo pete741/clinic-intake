@@ -667,9 +667,16 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
 
   /* KPI GRID */
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  /* Each KPI tile is itself an <a> so the entire card is the click target.
+     Block display + inherited color + no underline keeps the card looking
+     like a card, not a hyperlink. */
   .kpi-tile {
+    display: block;
     background: var(--cm-off-white); border: 1px solid var(--cm-light-grey-2);
     border-radius: 10px; padding: 18px 20px;
+    text-align: center;
+    text-decoration: none;
+    color: inherit;
   }
   .kpi-tile.featured {
     background: linear-gradient(135deg, var(--cm-purple) 0%, #4419a8 100%);
@@ -923,36 +930,36 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   <div class="section-group">
     <div class="section-label">The headline numbers · 90 days to {{ data_pulled }}</div>
     <div class="grid-3">
-      <div class="kpi-tile featured">
-        <div class="kpi-label"><a class="jump" href="#campaigns">Total spend</a></div>
+      <a class="kpi-tile featured" href="#campaigns">
+        <div class="kpi-label">Total spend</div>
         <div class="kpi-num">{{ total_spend | money_2dp }}</div>
         <div class="kpi-sub">Across {{ num_active_campaigns }} active campaigns over the last 90 days.</div>
-      </div>
-      <div class="kpi-tile">
-        <div class="kpi-label"><a class="jump" href="#tracking">Conversions</a></div>
+      </a>
+      <a class="kpi-tile" href="#tracking">
+        <div class="kpi-label">Conversions</div>
         <div class="kpi-num">{{ total_conv | pint }}</div>
         <div class="kpi-sub">At <strong>{{ cost_per_conv | money_2dp }}</strong> per conversion.</div>
-      </div>
-      <div class="kpi-tile">
-        <div class="kpi-label"><a class="jump" href="#visibility">Active campaigns</a></div>
+      </a>
+      <a class="kpi-tile" href="#visibility">
+        <div class="kpi-label">Active campaigns</div>
         <div class="kpi-num">{{ num_active_campaigns }}</div>
         <div class="kpi-sub">Search and Performance Max, ranked by spend.</div>
-      </div>
-      <div class="kpi-tile">
-        <div class="kpi-label"><a class="jump" href="#wasted">Wasted spend</a></div>
+      </a>
+      <a class="kpi-tile" href="#wasted">
+        <div class="kpi-label">Wasted spend</div>
         <div class="kpi-num">{{ wasted_total | money_2dp }}</div>
         <div class="kpi-sub">{% if wasted_total > 0 %}<span class="kpi-warn">Recoverable.</span> {% endif %}{{ wasted_count }} keywords with $20+ spend and zero conversions.</div>
-      </div>
-      <div class="kpi-tile">
-        <div class="kpi-label"><a class="jump" href="#quality">Avg quality score</a></div>
+      </a>
+      <a class="kpi-tile" href="#quality">
+        <div class="kpi-label">Avg quality score</div>
         <div class="kpi-num">{{ "%.1f"|format(avg_qs) }} / 10</div>
         <div class="kpi-sub">{% if avg_qs and avg_qs < 6 %}<span class="kpi-warn">Below average.</span> Premium CPC on most clicks.{% elif avg_qs >= 7 %}Above average. Maintaining well.{% else %}Room to improve.{% endif %}</div>
-      </div>
-      <div class="kpi-tile">
-        <div class="kpi-label"><a class="jump" href="#brand">Brand spend leak</a></div>
+      </a>
+      <a class="kpi-tile" href="#brand">
+        <div class="kpi-label">Brand spend leak</div>
         <div class="kpi-num">{{ brand_spend | money_2dp }}</div>
         <div class="kpi-sub">{{ "%.1f"|format(brand_pct) }}% of budget intercepting people who already chose you.</div>
-      </div>
+      </a>
     </div>
   </div>
 

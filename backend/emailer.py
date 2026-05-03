@@ -305,3 +305,97 @@ def send_intake_brief(clinic_name: str, pdf_bytes: bytes, submission: dict) -> b
 
     safe = clinic_name.lower().replace(" ", "_").replace("/", "-")
     return _send(subject, html, text, pdf_bytes, f"intake_brief_{safe}.pdf")
+
+
+def send_pending_summary(pending: list[dict]) -> bool:
+    """
+    Daily digest email of clinics still in google_ads_data_status = Pending.
+    Each entry should contain: clinic_name, ghl_contact_id, intake_date, email.
+
+    Sends nothing if the list is empty (no point pestering Pete with a "0 pending"
+    email every day).
+    """
+    if not pending:
+        logger.info("send_pending_summary: 0 pending, skipping send")
+        return True
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    rows: list[str] = []
+    for i, entry in enumerate(pending):
+        clinic = entry.get("clinic_name") or "Unknown"
+        contact_id = entry.get("ghl_contact_id") or "-"
+        contact_email = entry.get("email") or "-"
+        intake_raw = entry.get("intake_date") or ""
+        try:
+            started = datetime.fromisoformat(intake_raw)
+            elapsed_h = (now - started).total_seconds() / 3600
+            remaining_h = max(0.0, 72 - elapsed_h)
+            elapsed_str = f"{elapsed_h:.1f}h"
+            remaining_str = f"{remaining_h:.1f}h" if remaining_h > 0 else "expired"
+        except (ValueError, TypeError):
+            elapsed_str = "unknown"
+            remaining_str = "unknown"
+
+        bg = 'style="background:#eeecfb;"' if i % 2 == 0 else ""
+        rows.append(
+            f'<tr {bg}>'
+            f'<td style="padding:10px 12px;font-weight:600;color:#1a1a2e;">{clinic}</td>'
+            f'<td style="padding:10px 12px;color:#374151;font-family:monospace;font-size:12px;">{contact_id}</td>'
+            f'<td style="padding:10px 12px;color:#374151;">{contact_email}</td>'
+            f'<td style="padding:10px 12px;color:#6b7280;text-align:right;">{elapsed_str}</td>'
+            f'<td style="padding:10px 12px;color:#6b7280;text-align:right;">{remaining_str}</td>'
+            f"</tr>\n"
+        )
+
+    table_html = "".join(rows)
+    count = len(pending)
+    word = "clinic" if count == 1 else "clinics"
+    subject = f"Google Ads pending digest - {count} {word}"
+
+    html = f"""
+<div style="font-family:-apple-system,sans-serif;max-width:760px;margin:0 auto;padding:24px;">
+  <div style="background:#534AB7;padding:16px 24px;border-radius:8px 8px 0 0;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">Google Ads pending digest</h1>
+    <p style="color:#c4b9f5;margin:4px 0 0;font-size:13px;">
+      {count} {word} still waiting for ad-account access to come through
+    </p>
+  </div>
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;
+              padding:20px;border-radius:0 0 8px 8px;">
+    <p style="color:#374151;margin:0 0 12px;font-size:13px;">
+      These clinics submitted the intake form, were tagged Pending, and the cron
+      worker has been polling for their Google Ads account but hasn't found a match yet.
+      Once the 72-hour window expires they're auto-skipped.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;
+                  border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+      <thead>
+        <tr style="background:#1a1a2e;color:#fff;">
+          <th style="padding:10px 12px;text-align:left;font-weight:600;">Clinic</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600;">Contact ID</th>
+          <th style="padding:10px 12px;text-align:left;font-weight:600;">Email</th>
+          <th style="padding:10px 12px;text-align:right;font-weight:600;">Elapsed</th>
+          <th style="padding:10px 12px;text-align:right;font-weight:600;">Remaining</th>
+        </tr>
+      </thead>
+      <tbody>
+{table_html}      </tbody>
+    </table>
+    <p style="color:#6b7280;font-size:12px;margin:16px 0 0;">
+      Sent by the clinic-intake cron worker. To investigate a stuck clinic,
+      check the GHL contact and confirm their Google Ads account name matches.
+    </p>
+  </div>
+</div>
+"""
+
+    text_lines = [f"{count} clinic(s) still pending Google Ads access:\n"]
+    for entry in pending:
+        text_lines.append(
+            f"  - {entry.get('clinic_name')} ({entry.get('ghl_contact_id')}) {entry.get('email') or ''}"
+        )
+    text = "\n".join(text_lines)
+
+    return _send(subject, html, text)

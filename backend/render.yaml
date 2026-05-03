@@ -40,6 +40,12 @@ services:
     startCommand: python poll_worker.py
     rootDir: backend
     envVars:
+      - key: PENDING_DIGEST_UTC_HOUR
+        value: "21"
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
       - key: GHL_API_KEY
         sync: false
       - key: GHL_LOCATION_ID

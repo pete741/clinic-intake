@@ -570,9 +570,9 @@ def _get_account_name(client, customer_id: str) -> str:
 
 # ── Data pull ─────────────────────────────────────────────────────────────────
 
-def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
+def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: int = 90) -> dict:
     """
-    Pulls the last 90 days of campaign and keyword data for the given account.
+    Pulls the last `lookback_days` of campaign and keyword data for the given account.
 
     Args:
         customer_id: Google Ads customer ID (no dashes).
@@ -580,23 +580,27 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
                      and to infer the clinic specialty for the irrelevance rules.
                      If empty, brand detection is skipped and only universal
                      irrelevance patterns apply.
+        lookback_days: Window size in days. Default 90. Pass 180 for clinics
+                     who paused ads recently and have no recent spend.
 
     Returns a summary dict with:
       - total_spend_90d, total_conversions_90d, cost_per_conversion
+        (keys keep "_90d" suffix for backwards compatibility, even when lookback_days != 90)
       - top_campaigns (list of {name, spend, conversions})
       - wasted_keywords (keywords with spend > threshold and 0 conversions)
       - low_qs_keywords
       - irrelevant_terms (now using expanded rule library)
-      - brand_keywords, brand_spend, non_brand_spend (NEW - drives PDF section 5)
+      - brand_keywords, brand_spend, non_brand_spend
       - avg_quality_score, num_active_campaigns
+      - lookback_days: the window actually used
     """
     from datetime import timedelta
     client = _build_google_ads_client()
     ga_service = client.get_service("GoogleAdsService")
 
-    # GAQL doesn't support LAST_90_DAYS - use explicit date range
+    # GAQL doesn't support LAST_N_DAYS - use explicit date range
     today = datetime.now(timezone.utc).date()
-    start_date = (today - timedelta(days=90)).strftime("%Y-%m-%d")
+    start_date = (today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     end_date = today.strftime("%Y-%m-%d")
     date_filter = f"segments.date BETWEEN '{start_date}' AND '{end_date}'"
 
@@ -888,6 +892,7 @@ def pull_account_data(customer_id: str, clinic_name: str = "") -> dict:
         "specialty": specialty,
         "ad_copy": ad_copy,
         "ad_group_names": ad_group_names,
+        "lookback_days": lookback_days,
     }
 
 

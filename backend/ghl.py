@@ -576,6 +576,8 @@ async def get_pending_polls() -> list[dict]:
             "ghl_contact_id":       contact["id"],
             "avg_appointment_fee":  avg_fee,
             "avg_visits_per_patient": avg_visits,
+            "intake_date":          intake_raw or "",
+            "email":                contact.get("email") or "",
         })
         logger.info(f"Resuming poll for {clinic_name} ({contact['id']})")
 

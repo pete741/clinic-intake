@@ -336,7 +336,7 @@ def _compute_priorities(d: dict, clinic_name: str) -> list[dict]:
     non_brand = d.get("non_brand_spend") or max(total_spend - brand_spend, 0)
     brand_pct = brand_spend / (brand_spend + non_brand + 0.01) * 100
 
-    campaigns = d.get("top_campaigns") or []
+    campaigns = _live_campaigns(d)
     rank_losers = [c for c in campaigns if (c.get("lost_to_rank") or 0) > 20 and (c.get("spend") or 0) > 0]
     budget_losers = [c for c in campaigns if (c.get("lost_to_budget") or 0) > 20 and (c.get("spend") or 0) > 0]
     low_qs = d.get("low_qs_keywords") or []
@@ -488,9 +488,24 @@ def _compute_priorities(d: dict, clinic_name: str) -> list[dict]:
 
 
 # ── Build all the row collections the template needs ──
+def _live_campaigns(d: dict) -> list[dict]:
+    """Filters out REMOVED and zero-spend campaigns. Google Ads keeps
+    auto-generated/legacy artifacts (e.g. PMax 'AWN_004:hash_hash' style
+    rows with $0 spend) attached to the account; they have no place in a
+    client audit."""
+    out = []
+    for c in d.get("top_campaigns") or []:
+        if (c.get("status") or "").upper() == "REMOVED":
+            continue
+        if (c.get("spend") or 0) <= 0 and (c.get("clicks") or 0) <= 0:
+            continue
+        out.append(c)
+    return out
+
+
 def _build_top_campaign_rows(d: dict) -> list[dict]:
     """Adds computed share_pct and cost_per_conv to each top campaign."""
-    campaigns = d.get("top_campaigns") or []
+    campaigns = _live_campaigns(d)
     total = d.get("total_spend_90d", 0) or sum(c.get("spend", 0) for c in campaigns)
     max_share = max((c.get("spend", 0) for c in campaigns), default=0) or 1
     rows = []
@@ -511,15 +526,24 @@ def _build_top_campaign_rows(d: dict) -> list[dict]:
 
 
 def _build_visibility_rows(d: dict) -> list[dict]:
-    """Top campaigns with impression-share triple. Skips rows with no IS data."""
-    campaigns = d.get("top_campaigns") or []
+    """Top campaigns with impression-share triple. Skips rows with no IS data.
+
+    Google returns None when the field isn't applicable (display-only
+    campaigns). It returns 0.0 when search-impression-share metrics aren't
+    reportable for the campaign type (Performance Max, Smart, etc.) or
+    when the account doesn't qualify for IS reporting yet. In both cases
+    rendering '0% won / 0% lost' is misleading, so we drop the row.
+    """
+    campaigns = _live_campaigns(d)
     rows = []
     for c in campaigns[:5]:
         is_pct = c.get("impression_share")
         lost_budget = c.get("lost_to_budget")
         lost_rank = c.get("lost_to_rank")
-        # If all three are None (e.g., display-only or no search data), skip.
-        if is_pct is None and lost_budget is None and lost_rank is None:
+        # Treat None and the all-zero case as "no impression-share data".
+        triple = (is_pct, lost_budget, lost_rank)
+        all_unreported = all(v in (None, 0, 0.0) for v in triple)
+        if all_unreported:
             continue
         bigger = "Rank" if (lost_rank or 0) > (lost_budget or 0) else "Budget"
         rows.append({

@@ -373,10 +373,11 @@ async def create_or_update_contact(
             # Note: PUT /contacts/{id} does not accept locationId in the body.
             update_payload = {
                 "name": submission.clinic_name,
-                "firstName": submission.first_name,
                 "email": submission.email,
                 "customFields": custom_fields,
             }
+            if submission.first_name:
+                update_payload["firstName"] = submission.first_name
             if submission.phone:
                 update_payload["phone"] = submission.phone
 
@@ -432,10 +433,11 @@ async def create_or_update_contact(
         create_payload = {
             "locationId": GHL_LOCATION_ID,
             "name": submission.clinic_name,
-            "firstName": submission.first_name,
             "email": submission.email,
             "customFields": custom_fields,
         }
+        if submission.first_name:
+            create_payload["firstName"] = submission.first_name
         if submission.phone:
             create_payload["phone"] = submission.phone
 

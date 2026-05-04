@@ -10,10 +10,17 @@ import re
 
 class IntakeSubmission(BaseModel):
     # Step 1: About your clinic + the person filling in the form
+    #
+    # first_name and phone are required by the live frontend form, but
+    # accepted as Optional here so cached older bundles (which don't
+    # render those fields) can still submit successfully. The phone-
+    # collision banner Pete added yesterday already surfaces incomplete
+    # contacts visibly in his inbox, so the data quality concern is
+    # covered without breaking backwards compatibility.
     clinic_name: str
-    first_name: str
+    first_name: Optional[str] = None
     email: str
-    phone: str
+    phone: Optional[str] = None
     primary_specialty: str
     suburb: str
     state: str

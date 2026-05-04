@@ -37,6 +37,37 @@ export interface FormData {
   invite_sent: string;
 }
 
+// FastAPI returns 422s with `detail` as an array of objects:
+//   [{ loc: ["body","first_name"], msg: "Field required", ... }]
+// stringifying that array gives "[object Object]". This helper turns
+// any shape FastAPI might return into a clean human-readable string.
+function formatErrorDetail(detail: unknown, status: number): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const obj = item as Record<string, unknown>;
+          const field = Array.isArray(obj.loc)
+            ? (obj.loc as unknown[]).slice(1).join(".")
+            : "";
+          const msg = typeof obj.msg === "string" ? obj.msg : "";
+          if (field && msg) return `${field}: ${msg}`;
+          if (msg) return msg;
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const obj = detail as Record<string, unknown>;
+    if (typeof obj.msg === "string") return obj.msg;
+  }
+  return `Server error (${status}). Please refresh the page and try again.`;
+}
+
 export async function submitForm(data: FormData): Promise<{ status: string; message: string }> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -47,15 +78,14 @@ export async function submitForm(data: FormData): Promise<{ status: string; mess
   });
 
   if (!response.ok) {
-    // Try to parse a detail message from FastAPI's error response
-    let detail = `Server error (${response.status})`;
+    let detail: unknown = null;
     try {
       const err = await response.json();
-      if (err.detail) detail = err.detail;
+      detail = err.detail;
     } catch (_) {
-      // ignore parse errors
+      // body wasn't JSON
     }
-    throw new Error(detail);
+    throw new Error(formatErrorDetail(detail, response.status));
   }
 
   return response.json();

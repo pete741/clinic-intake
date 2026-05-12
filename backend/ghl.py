@@ -340,17 +340,30 @@ async def create_or_update_contact(
         matched_by_phone = False
 
         # 1. Search by phone
+        phone_contact_id = None
         if submission.phone:
-            contact_id = await _find_contact_by_phone(client, submission.phone)
-            if contact_id:
-                logger.info(f"Found existing contact {contact_id} by phone")
+            phone_contact_id = await _find_contact_by_phone(client, submission.phone)
+            if phone_contact_id:
+                logger.info(f"Found existing contact {phone_contact_id} by phone")
+                contact_id = phone_contact_id
                 matched_by_phone = True
 
-        # 2. Search by email
-        if not contact_id:
-            contact_id = await _find_contact_by_email(client, submission.email)
-            if contact_id:
-                logger.info(f"Found existing contact {contact_id} by email")
+        # 2. Search by email — always run so we can detect phone/email mismatch
+        email_contact_id = await _find_contact_by_email(client, submission.email)
+        if email_contact_id:
+            logger.info(f"Found existing contact {email_contact_id} by email")
+            if email_contact_id != phone_contact_id:
+                # Email-matched contact is GHL's canonical owner of this email.
+                # Updating the phone-matched contact with this email would trigger
+                # GHL's duplicate rejection. Use the email-matched contact instead
+                # and omit phone from the update to avoid the reverse conflict.
+                logger.info(
+                    f"Phone→{phone_contact_id} and email→{email_contact_id} differ — "
+                    f"using email match as update target"
+                )
+                contact_id = email_contact_id
+                matched_by_phone = False
+            # else: same contact found by both — no conflict
 
         collision: Optional[dict] = None
 
@@ -376,18 +389,16 @@ async def create_or_update_contact(
             # Existing contact: update custom fields only — never touch tags or
             # source, so programme tags and contact type are preserved.
             # Note: PUT /contacts/{id} does not accept locationId in the body.
-            # When matched by phone, omit email from the update — sending a
-            # different email on a phone-matched contact triggers GHL's duplicate
-            # rejection if that email already belongs to another contact.
+            # When we switched to the email-matched contact (matched_by_phone=False
+            # after mismatch resolution), omit phone — it belongs to the other contact.
             update_payload = {
                 "name": submission.clinic_name,
+                "email": submission.email,
                 "customFields": custom_fields,
             }
-            if not matched_by_phone:
-                update_payload["email"] = submission.email
             if submission.first_name:
                 update_payload["firstName"] = submission.first_name
-            if submission.phone:
+            if submission.phone and not (phone_contact_id and email_contact_id and phone_contact_id != email_contact_id):
                 update_payload["phone"] = submission.phone
 
             resp = await _request_with_retry(

@@ -881,10 +881,14 @@ def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: in
         "top_campaigns": top_campaigns,
         "all_campaigns_paused": all_campaigns_paused,
         "wasted_keywords": wasted_keywords[:20],
+        "wasted_keywords_total_spend": round(sum(k.get("spend", 0) for k in wasted_keywords), 2),
+        "wasted_keywords_total_count": len(wasted_keywords),
         "low_qs_keywords": low_qs_keywords,
         "avg_quality_score": avg_quality_score,
         "num_active_campaigns": num_active,
         "irrelevant_terms": irrelevant_terms[:30],
+        "irrelevant_terms_total_spend": round(sum(t.get("spend", 0) for t in irrelevant_terms), 2),
+        "irrelevant_terms_total_count": len(irrelevant_terms),
         "brand_keywords": branded_terms[:30],
         "brand_spend": brand_spend,
         "non_brand_spend": non_brand_spend,
@@ -1051,14 +1055,22 @@ async def run_ads_report_now(
         summary = pull_account_data(matched_id, clinic_name=clinic_name)
 
         # Write snapshot to GHL
-        wasted_total = sum(k.get("spend", 0) for k in summary.get("wasted_keywords", []))
+        # Recoverable spend = zero-conv keywords + LLM-flagged irrelevant search
+        # terms. On accounts with inflated conversion tracking the zero-conv list
+        # is always empty, so the wasted_total used to read $0. Including the
+        # irrelevant terms makes the snapshot match the headline KPI in the PDF.
+        wasted_total = summary.get("wasted_keywords_total_spend") or 0
+        wasted_count = summary.get("wasted_keywords_total_count") or 0
+        irrel_total = summary.get("irrelevant_terms_total_spend") or 0
+        irrel_count = summary.get("irrelevant_terms_total_count") or 0
+        recoverable_total = wasted_total + irrel_total
         snapshot = (
             f"Total spend (90d): ${summary.get('total_spend_90d', 0):,.2f}\n"
             f"Conversions: {summary.get('total_conversions_90d', 0)} | "
             f"Cost per conversion: ${summary.get('cost_per_conversion', 0):,.2f}\n"
             f"Active campaigns: {summary.get('num_active_campaigns', 0)}\n"
-            f"Wasted spend identified: ${wasted_total:,.2f} "
-            f"({len(summary.get('wasted_keywords', []))} keywords)\n"
+            f"Wasted spend identified: ${recoverable_total:,.2f} "
+            f"({wasted_count} zero-conv keywords + {irrel_count} irrelevant search terms)\n"
             f"Avg quality score: {summary.get('avg_quality_score', 0)}/10\n"
             f"Status: Full report emailed to pete@clinicmastery.com"
         )

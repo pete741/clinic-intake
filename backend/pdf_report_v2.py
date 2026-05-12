@@ -996,11 +996,12 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
         <div class="kpi-num">{{ num_active_campaigns }}</div>
         <div class="kpi-sub">Search and Performance Max, ranked by spend.</div>
       </a>
-      <a class="kpi-tile" href="#wasted">
+      {% set _waste_anchor = '#wasted' if wasted_keywords else ('#irrelevant' if irrelevant_terms else '') %}
+      {% if _waste_anchor %}<a class="kpi-tile" href="{{ _waste_anchor }}">{% else %}<div class="kpi-tile">{% endif %}
         <div class="kpi-label">Wasted spend</div>
-        <div class="kpi-num">{{ wasted_total | money_2dp }}</div>
-        <div class="kpi-sub">{% if wasted_total > 0 %}<span class="kpi-warn">Recoverable.</span> {% endif %}{{ wasted_count }} keywords with $20+ spend and zero conversions.</div>
-      </a>
+        <div class="kpi-num">{{ recoverable_total | money_2dp }}</div>
+        <div class="kpi-sub">{% if recoverable_total > 0 %}<span class="kpi-warn">Recoverable.</span> {% endif %}{% if wasted_full_count and irrel_full_count %}{{ wasted_full_count }} zero-conversion keywords plus {{ irrel_full_count }} irrelevant search terms.{% elif wasted_full_count %}{{ wasted_full_count }} keywords with $20+ spend and zero conversions.{% elif irrel_full_count %}{{ irrel_full_count }} search terms with zero patient intent.{% else %}No clear waste signals found.{% endif %}</div>
+      {% if _waste_anchor %}</a>{% else %}</div>{% endif %}
       <a class="kpi-tile" href="#quality">
         <div class="kpi-label">Avg quality score</div>
         <div class="kpi-num">{{ "%.1f"|format(avg_qs) }} / 10</div>
@@ -1111,14 +1112,14 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
   {% if irrelevant_terms %}
   <div class="insight-card amber" id="irrelevant">
     <div class="insight-eyebrow">Irrelevant search terms</div>
-    <div class="insight-title">{{ irrel_total | money_2dp }} was spent on {{ irrel_count }} search term{{ 's' if irrel_count > 1 else '' }} with zero patient intent.</div>
+    <div class="insight-title">{{ irrel_total | money_2dp }} was spent on {{ irrel_full_count }} search term{{ 's' if irrel_full_count > 1 else '' }} with zero patient intent.</div>
     <div class="insight-body">These are actual searches that triggered your ads. Most are competitor brand names, NDIS admin queries, or adjacent services that have nothing to do with booking therapy. Each click costs money with no chance of conversion. The fix is one batch job: <strong>add all of them as exact-match negatives at the account level</strong>. Then schedule a 20-minute monthly search-term review so new ones do not accumulate.</div>
     <table class="mini-table">
       <thead>
         <tr><th>Search term</th><th class="r">Spend</th><th class="r">Clicks</th><th>Why irrelevant</th></tr>
       </thead>
       <tbody>
-        {% for t in irrelevant_terms[:8] %}
+        {% for t in irrelevant_terms[:30] %}
         <tr>
           <td class="t-name">{{ t.term }}</td>
           <td class="t-num">{{ t.spend | money_2dp }}</td>
@@ -1128,6 +1129,9 @@ TEMPLATE_SRC = r"""<!DOCTYPE html>
         {% endfor %}
       </tbody>
     </table>
+    {% if irrel_full_count > irrelevant_terms|length %}
+    <div class="insight-body" style="margin-top: 12px;">Showing the top {{ irrelevant_terms|length }} by spend. <strong>{{ irrel_full_count - irrelevant_terms|length }} more</strong> irrelevant terms were detected in the search-term report and are not listed above.</div>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -1287,9 +1291,29 @@ def generate_pdf(summary: dict, clinic_name: str) -> bytes:
     brand_pct = (brand_spend / (brand_spend + non_brand_spend + 0.01)) * 100
 
     wasted_keywords = d.get("wasted_keywords") or []
-    wasted_total = sum(k.get("spend", 0) for k in wasted_keywords)
+    # Prefer the upstream pre-truncation totals so the headline matches the
+    # full list, not just the top N rows we render. Fall back to summing the
+    # truncated list for older runs that pre-date the aggregate keys.
+    wasted_total = d.get("wasted_keywords_total_spend")
+    if wasted_total is None:
+        wasted_total = sum(k.get("spend", 0) for k in wasted_keywords)
+    wasted_full_count = d.get("wasted_keywords_total_count")
+    if wasted_full_count is None:
+        wasted_full_count = len(wasted_keywords)
+
     irrelevant_terms = d.get("irrelevant_terms") or []
-    irrel_total = sum(t.get("spend", 0) for t in irrelevant_terms)
+    irrel_total = d.get("irrelevant_terms_total_spend")
+    if irrel_total is None:
+        irrel_total = sum(t.get("spend", 0) for t in irrelevant_terms)
+    irrel_full_count = d.get("irrelevant_terms_total_count")
+    if irrel_full_count is None:
+        irrel_full_count = len(irrelevant_terms)
+
+    # Combined recoverable spend powers the headline KPI. Both buckets are
+    # recoverable via keyword pruning and negative keywords, so the prospect
+    # sees one honest number instead of $0 on accounts where inflated
+    # conversion tracking makes the zero-conv keyword list empty.
+    recoverable_total = (wasted_total or 0) + (irrel_total or 0)
 
     ctx = {
         "logo_b64": _LOGO_B64,
@@ -1305,6 +1329,8 @@ def generate_pdf(summary: dict, clinic_name: str) -> bytes:
         "num_active_campaigns": d.get("num_active_campaigns", 0) or 0,
         "wasted_total": wasted_total,
         "wasted_count": len(wasted_keywords),
+        "wasted_full_count": wasted_full_count,
+        "recoverable_total": recoverable_total,
         "avg_qs": d.get("avg_quality_score", 0) or 0,
         "brand_spend": brand_spend,
         "non_brand_spend": non_brand_spend,
@@ -1316,6 +1342,7 @@ def generate_pdf(summary: dict, clinic_name: str) -> bytes:
         "irrelevant_terms": irrelevant_terms,
         "irrel_total": irrel_total,
         "irrel_count": len(irrelevant_terms),
+        "irrel_full_count": irrel_full_count,
         "tracking_card": _tracking_card(d),
         "qs": _qs_bands(d),
         "priorities": _compute_priorities(d, clinic_name),

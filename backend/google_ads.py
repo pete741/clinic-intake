@@ -1063,7 +1063,6 @@ async def run_ads_report_now(
             f"Status: Full report emailed to pete@clinicmastery.com"
         )
         await update_contact_field(ghl_contact_id, "google_ads_summary", snapshot)
-        await update_contact_field(ghl_contact_id, "google_ads_data_status", "Complete")
 
         # Generate PDF and email
         summary["avg_appointment_fee"] = avg_appointment_fee
@@ -1078,11 +1077,27 @@ async def run_ads_report_now(
             contact_email=contact.get("email", ""),
         )
 
-        logger.info(f"[Force] Report complete for {clinic_name}. Email sent: {sent}")
+        # Only mark Complete once the audit has actually been delivered. If the
+        # email failed (eg. missing SMTP creds), leave status=Pending so the
+        # cron picks it up again next cycle instead of silently moving on.
+        if not sent:
+            logger.error(
+                f"[Force] PDF built for {clinic_name} but email failed, "
+                f"leaving google_ads_data_status=Pending for retry"
+            )
+            return {
+                "status": "error",
+                "detail": "email_send_failed",
+                "customer_id": matched_id,
+                "email_sent": False,
+            }
+
+        await update_contact_field(ghl_contact_id, "google_ads_data_status", "Complete")
+        logger.info(f"[Force] Report complete for {clinic_name}. Email sent: True")
         return {
             "status": "success",
             "customer_id": matched_id,
-            "email_sent": sent,
+            "email_sent": True,
             "total_spend_90d": summary.get("total_spend_90d"),
             "total_conversions_90d": summary.get("total_conversions_90d"),
         }

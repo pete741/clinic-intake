@@ -386,14 +386,14 @@ async def create_or_update_contact(
                     collision["phone"],
                 )
 
-            # Existing contact: update custom fields only — never touch tags or
-            # source, so programme tags and contact type are preserved.
+            # Existing contact: update name, custom fields, and phone only.
+            # Never send email on an update — the contact was found by email or
+            # phone so the email is already correct, and sending it causes GHL to
+            # check every other contact for a duplicate match and reject.
+            # Never touch tags or source so existing programme tags are preserved.
             # Note: PUT /contacts/{id} does not accept locationId in the body.
-            # When we switched to the email-matched contact (matched_by_phone=False
-            # after mismatch resolution), omit phone — it belongs to the other contact.
             update_payload = {
                 "name": submission.clinic_name,
-                "email": submission.email,
                 "customFields": custom_fields,
             }
             if submission.first_name:

@@ -32,6 +32,9 @@ GHL_API_KEY = os.getenv("GHL_API_KEY", "")
 GHL_LOCATION_ID = os.getenv("GHL_LOCATION_ID", "")
 BASE_URL = "https://services.leadconnectorhq.com"
 
+# Last GHL error detail — set whenever a contact write fails, read by main.py for 502 detail
+last_ghl_error: str = ""
+
 # File that caches custom field IDs so we don't re-create them on every startup
 FIELD_IDS_FILE = Path(__file__).parent / "field_ids.json"
 
@@ -415,6 +418,8 @@ async def create_or_update_contact(
                     logger.warning(f"Could not parse duplicate-contact error: {exc}")
 
             if resp.status_code not in (200, 201):
+                global last_ghl_error
+                last_ghl_error = f"PUT /contacts/{contact_id} → {resp.status_code}: {resp.text[:400]}"
                 logger.error(
                     f"Failed to update GHL contact {contact_id}: {resp.status_code} - {resp.text}"
                 )
@@ -448,6 +453,8 @@ async def create_or_update_contact(
             json=create_payload,
         )
         if resp.status_code not in (200, 201):
+            global last_ghl_error
+            last_ghl_error = f"POST /contacts/upsert → {resp.status_code}: {resp.text[:400]}"
             logger.error(
                 f"Failed to create GHL contact: {resp.status_code} - {resp.text}"
             )

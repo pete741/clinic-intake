@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from emailer import send_submission_notification
 from ghl import create_or_update_contact, setup_custom_fields
+import ghl as _ghl
 from google_ads import run_ads_report_now
 from models import IntakeSubmission
 
@@ -193,6 +194,30 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/ghl-health")
+async def ghl_health():
+    """Diagnostic: checks GHL API key and location ID are valid."""
+    import httpx as _httpx
+    api_key = os.getenv("GHL_API_KEY", "")
+    location_id = os.getenv("GHL_LOCATION_ID", "")
+    if not api_key:
+        return {"status": "error", "detail": "GHL_API_KEY env var is not set"}
+    if not location_id:
+        return {"status": "error", "detail": "GHL_LOCATION_ID env var is not set"}
+    async with _httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"https://services.leadconnectorhq.com/locations/{location_id}",
+            headers={"Authorization": f"Bearer {api_key}", "Version": "2021-07-28"},
+        )
+    return {
+        "status": "ok" if resp.status_code == 200 else "error",
+        "ghl_status": resp.status_code,
+        "ghl_response": resp.json() if resp.status_code == 200 else resp.text[:500],
+        "api_key_prefix": api_key[:8] + "...",
+        "location_id": location_id,
+    }
+
+
 @app.get("/token-health")
 async def token_health():
     """
@@ -254,10 +279,11 @@ async def submit_intake(
     ghl_contact_id, collision = await create_or_update_contact(submission, ads_tag)
 
     if ghl_contact_id is None:
-        logger.error(f"GHL contact creation failed for {submission.clinic_name}")
+        ghl_err = _ghl.last_ghl_error or "no error detail captured"
+        logger.error(f"GHL contact creation failed for {submission.clinic_name}: {ghl_err}")
         raise HTTPException(
             status_code=502,
-            detail="Failed to create contact in CRM. Please try again.",
+            detail=f"Failed to create contact in CRM. GHL said: {ghl_err}",
         )
 
     logger.info(

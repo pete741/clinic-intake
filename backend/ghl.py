@@ -418,7 +418,7 @@ async def create_or_update_contact(
                 logger.error(
                     f"Failed to update GHL contact {contact_id}: {resp.status_code} - {resp.text}"
                 )
-                return None
+                return None, None
 
             # Add intake tags additively — existing tags are never removed
             for tag in new_tags:
@@ -451,7 +451,7 @@ async def create_or_update_contact(
             logger.error(
                 f"Failed to create GHL contact: {resp.status_code} - {resp.text}"
             )
-            return None
+            return None, None
         data = resp.json()
         contact_id = (
             data.get("contact", {}).get("id")

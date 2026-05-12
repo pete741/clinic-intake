@@ -2,5 +2,4 @@
 venv/
 __pycache__/
 *.pyc
-field_ids.json
 polling_state.json

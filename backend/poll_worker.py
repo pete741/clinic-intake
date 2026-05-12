@@ -18,13 +18,25 @@ import logging
 import os
 from datetime import datetime, timezone
 
+import sentry_sdk
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Sentry covers cron-side crashes. Without this init, unhandled exceptions in
+# the poll worker only surface in Render logs, which Pete does not watch.
+# SENTRY_DSN is already set on the cron service; init was the missing piece.
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN", ""),
+    integrations=[AsyncioIntegration()],
+    traces_sample_rate=0.0,
+    send_default_pii=False,
+)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 

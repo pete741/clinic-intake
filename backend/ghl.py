@@ -337,12 +337,14 @@ async def create_or_update_contact(
 
     async with httpx.AsyncClient() as client:
         contact_id = None
+        matched_by_phone = False
 
         # 1. Search by phone
         if submission.phone:
             contact_id = await _find_contact_by_phone(client, submission.phone)
             if contact_id:
                 logger.info(f"Found existing contact {contact_id} by phone")
+                matched_by_phone = True
 
         # 2. Search by email
         if not contact_id:
@@ -374,11 +376,15 @@ async def create_or_update_contact(
             # Existing contact: update custom fields only — never touch tags or
             # source, so programme tags and contact type are preserved.
             # Note: PUT /contacts/{id} does not accept locationId in the body.
+            # When matched by phone, omit email from the update — sending a
+            # different email on a phone-matched contact triggers GHL's duplicate
+            # rejection if that email already belongs to another contact.
             update_payload = {
                 "name": submission.clinic_name,
-                "email": submission.email,
                 "customFields": custom_fields,
             }
+            if not matched_by_phone:
+                update_payload["email"] = submission.email
             if submission.first_name:
                 update_payload["firstName"] = submission.first_name
             if submission.phone:

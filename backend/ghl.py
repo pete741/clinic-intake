@@ -453,8 +453,7 @@ async def create_or_update_contact(
             json=create_payload,
         )
         if resp.status_code not in (200, 201):
-            global last_ghl_error
-            last_ghl_error = f"POST /contacts/upsert → {resp.status_code}: {resp.text[:400]}"
+            last_ghl_error = f"POST /contacts/upsert -> {resp.status_code}: {resp.text[:400]}"
             logger.error(
                 f"Failed to create GHL contact: {resp.status_code} - {resp.text}"
             )

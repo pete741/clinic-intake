@@ -1310,10 +1310,13 @@ def generate_pdf(summary: dict, clinic_name: str) -> bytes:
         irrel_full_count = len(irrelevant_terms)
 
     # Combined recoverable spend powers the headline KPI. Both buckets are
-    # recoverable via keyword pruning and negative keywords, so the prospect
-    # sees one honest number instead of $0 on accounts where inflated
-    # conversion tracking makes the zero-conv keyword list empty.
-    recoverable_total = (wasted_total or 0) + (irrel_total or 0)
+    # recoverable via keyword pruning and negative keywords. Cap the sum at
+    # total spend because the two buckets overlap (a click counts toward both
+    # its keyword and its search term), and the headline must never claim more
+    # waste than the account actually spent.
+    total_spend_safe = total_spend or 0
+    raw_recoverable = (wasted_total or 0) + (irrel_total or 0)
+    recoverable_total = min(raw_recoverable, total_spend_safe) if total_spend_safe else raw_recoverable
 
     ctx = {
         "logo_b64": _LOGO_B64,

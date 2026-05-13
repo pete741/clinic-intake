@@ -64,10 +64,16 @@ async def main():
         contact_id  = entry["ghl_contact_id"]
         fee         = entry.get("avg_appointment_fee", 0.0)
         visits      = entry.get("avg_visits_per_patient", 0.0)
+        suburb      = entry.get("clinic_suburb", "")
+        state       = entry.get("clinic_state", "")
 
         logger.info(f"Checking: {clinic_name} ({contact_id})")
 
-        result = await run_ads_report_now(clinic_name, contact_id, fee, visits)
+        result = await run_ads_report_now(
+            clinic_name, contact_id, fee, visits,
+            clinic_suburb=suburb,
+            clinic_state=state,
+        )
         status = result.get("status")
 
         if status == "success":

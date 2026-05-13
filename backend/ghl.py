@@ -635,6 +635,8 @@ async def get_pending_polls() -> list[dict]:
     visits_field_id  = _field_id_map.get("avg_visits_per_patient", "")
     name_field_id    = _field_id_map.get("clinic_name", "")
     intake_field_id  = _field_id_map.get("intake_date", "")
+    suburb_field_id  = _field_id_map.get("suburb", "")
+    state_field_id   = _field_id_map.get("clinic_state", "")
 
     if not status_field_id:
         logger.warning("get_pending_polls: field ID map not loaded yet — skipping")
@@ -689,6 +691,8 @@ async def get_pending_polls() -> list[dict]:
         clinic_name  = custom.get(name_field_id) or contact.get("companyName") or contact.get("contactName", "Unknown")
         avg_fee      = float(custom.get(fee_field_id) or 0)
         avg_visits   = float(custom.get(visits_field_id) or 0)
+        suburb       = custom.get(suburb_field_id) or ""
+        clinic_state = custom.get(state_field_id) or ""
 
         pending.append({
             "clinic_name":          clinic_name,
@@ -697,6 +701,8 @@ async def get_pending_polls() -> list[dict]:
             "avg_visits_per_patient": avg_visits,
             "intake_date":          intake_raw or "",
             "email":                contact.get("email") or "",
+            "clinic_suburb":        suburb,
+            "clinic_state":         clinic_state,
         })
         logger.info(f"Resuming poll for {clinic_name} ({contact['id']})")
 

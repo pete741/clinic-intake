@@ -325,6 +325,8 @@ class TriggerAdsRequest(BaseModel):
     avg_visits_per_patient: float = 0.0
     admin_key: str
     google_ads_customer_id: Optional[str] = None  # skip name matching if provided
+    clinic_suburb: Optional[str] = ""              # anchors LLM geographic catchment rule
+    clinic_state: Optional[str] = ""
 
 
 @app.post("/trigger-ads-report")
@@ -348,6 +350,8 @@ async def trigger_ads_report(req: TriggerAdsRequest):
         req.avg_appointment_fee,
         req.avg_visits_per_patient,
         customer_id_override=req.google_ads_customer_id,
+        clinic_suburb=req.clinic_suburb or "",
+        clinic_state=req.clinic_state or "",
     )
 
     if result.get("status") == "error":

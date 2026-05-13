@@ -374,6 +374,8 @@ def _llm_classify_search_terms(
     ad_group_names: list[str],
     search_terms: list[dict],
     already_flagged_terms: set[str],
+    clinic_suburb: str = "",
+    clinic_state: str = "",
 ) -> dict[str, str]:
     """Ask Claude to flag context-irrelevant search terms the rule library missed.
 
@@ -430,20 +432,31 @@ def _llm_classify_search_terms(
         "- HARD WRITING RULE: NEVER use em dashes in reasons or anywhere else. "
         "Use a hyphen (-), comma, period, or parentheses instead. Em dashes are "
         "forbidden in this brand's copy and will cause the audit to be rejected.\n"
+        "- GEOGRAPHIC CATCHMENT RULE: Allied health patients routinely travel 10-15 "
+        "minutes for specialist care. If the term names a suburb that is within "
+        "roughly 15 km of the clinic's stated location, mark it RELEVANT, not "
+        "irrelevant. Only flag a suburb-named term as geographic mismatch when "
+        "the suburb is clearly outside the catchment (different city, 30+ km "
+        "away, or an obscure region the clinic plainly does not service).\n"
         "- Examples of contextual irrelevance:\n"
         "  - Wrong profession (psychiatrist vs psychology)\n"
         "  - Modality not in ad copy (e.g. EMDR if no EMDR mention anywhere)\n"
         "  - Demographic mismatch (child therapy if clinic only mentions adults)\n"
         "  - Funded or free seekers when clinic ad copy implies private fee\n"
-        "  - Geographic mismatch (suburb the clinic does not service)\n"
+        "  - Geographic mismatch ONLY when clearly outside the 15 km catchment\n"
         "  - Out-of-scope conditions (eating disorders if clinic only does anxiety or depression)\n\n"
         "Return ONLY a JSON array. No markdown, no preamble. Format:\n"
         '[{"term": "...", "verdict": "irrelevant", "reason": "..."},'
         ' {"term": "...", "verdict": "relevant"}]'
     )
 
+    location_line = ""
+    if clinic_suburb or clinic_state:
+        location_line = f"CLINIC LOCATION: {clinic_suburb}{', ' + clinic_state if clinic_state else ''} (apply the 15 km catchment rule from any suburb-named search term)\n"
+
     user_prompt = (
         f"CLINIC: {clinic_name}\n"
+        f"{location_line}"
         f"INFERRED SPECIALTY: {specialty}\n"
         f"AD COPY (what they advertise): {ad_copy_str}\n"
         f"AD GROUP NAMES: {ad_groups_str}\n\n"
@@ -570,7 +583,13 @@ def _get_account_name(client, customer_id: str) -> str:
 
 # ── Data pull ─────────────────────────────────────────────────────────────────
 
-def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: int = 90) -> dict:
+def pull_account_data(
+    customer_id: str,
+    clinic_name: str = "",
+    lookback_days: int = 90,
+    clinic_suburb: str = "",
+    clinic_state: str = "",
+) -> dict:
     """
     Pulls the last `lookback_days` of campaign and keyword data for the given account.
 
@@ -711,10 +730,13 @@ def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: in
     # Classify tracking quality by cost per conversion. Drives how we interpret
     # the conversion data downstream and what the PDF says about it.
     tracking_quality = classify_conversion_tracking(cost_per_conversion)
-    # Suppress wasted-spend analysis only when tracking is broken outright.
-    # In the "uncertain" tier we still run the analysis but the PDF flags
-    # it as low-confidence so the prospect understands the caveat.
-    if tracking_quality == "broken":
+    # Suppress wasted-spend analysis when the conversion signal is unreliable.
+    # "broken" tier (cost per conv < $20) means tracking is firing on the wrong
+    # action. "no_data" tier (zero conversions) means we cannot tell whether a
+    # zero-conv keyword is genuinely wasted or just unable to fire conversions.
+    # In both cases the irrelevant-search-terms classifier remains the trusted
+    # source for the wasted-spend headline.
+    if tracking_quality in ("broken", "no_data"):
         wasted_keywords = []
     else:
         wasted_keywords = [
@@ -855,6 +877,8 @@ def pull_account_data(customer_id: str, clinic_name: str = "", lookback_days: in
         ad_group_names=ad_group_names,
         search_terms=raw_terms,
         already_flagged_terms=already_flagged,
+        clinic_suburb=clinic_suburb,
+        clinic_state=clinic_state,
     )
     if llm_flags:
         # Only flag terms with non-trivial spend so the audit stays signal-rich.
@@ -1009,10 +1033,15 @@ async def run_ads_report_now(
     avg_appointment_fee: float = 0.0,
     avg_visits_per_patient: float = 0.0,
     customer_id_override: str = None,
+    clinic_suburb: str = "",
+    clinic_state: str = "",
 ) -> dict:
     """
     Immediately attempts to find the clinic's Google Ads account and generate
     the report - no polling loop, no waiting.
+
+    clinic_suburb and clinic_state anchor the LLM classifier's geographic
+    catchment rule so nearby-suburb search terms are not flagged as irrelevant.
 
     Returns {"status": "success", "customer_id": ...} or {"status": "error", "detail": ...}.
     Called by the /trigger-ads-report admin endpoint.
@@ -1052,18 +1081,26 @@ async def run_ads_report_now(
 
         # Pull full account data - clinic_name is required for brand-keyword
         # detection and specialty inference (drives the irrelevance rules).
-        summary = pull_account_data(matched_id, clinic_name=clinic_name)
+        summary = pull_account_data(
+            matched_id,
+            clinic_name=clinic_name,
+            clinic_suburb=clinic_suburb,
+            clinic_state=clinic_state,
+        )
 
-        # Write snapshot to GHL
-        # Recoverable spend = zero-conv keywords + LLM-flagged irrelevant search
-        # terms. On accounts with inflated conversion tracking the zero-conv list
-        # is always empty, so the wasted_total used to read $0. Including the
-        # irrelevant terms makes the snapshot match the headline KPI in the PDF.
+        # Write snapshot to GHL. Recoverable spend combines zero-conv keywords
+        # and LLM-flagged irrelevant search terms. Cap at total spend because
+        # the two buckets overlap (a click is attributed to both a keyword and
+        # a search term); naive summing can produce >100% which is indefensible.
         wasted_total = summary.get("wasted_keywords_total_spend") or 0
         wasted_count = summary.get("wasted_keywords_total_count") or 0
         irrel_total = summary.get("irrelevant_terms_total_spend") or 0
         irrel_count = summary.get("irrelevant_terms_total_count") or 0
-        recoverable_total = wasted_total + irrel_total
+        total_spend_90d = summary.get("total_spend_90d") or 0
+        raw_recoverable = wasted_total + irrel_total
+        recoverable_total = (
+            min(raw_recoverable, total_spend_90d) if total_spend_90d else raw_recoverable
+        )
         snapshot = (
             f"Total spend (90d): ${summary.get('total_spend_90d', 0):,.2f}\n"
             f"Conversions: {summary.get('total_conversions_90d', 0)} | "
